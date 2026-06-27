@@ -132,8 +132,14 @@ export default function AdminBanner() {
   };
 
   const executeDeleteBanner = async (id: string) => {
-    await dbService.deleteBanner(id);
-    loadAllData();
+    if (!id) return;
+    try {
+      await dbService.deleteBanner(id);
+      loadAllData();
+    } catch (err) {
+      console.error("Gagal menghapus banner:", err);
+      alert("Gagal menghapus banner dari cloud database. Silakan periksa koneksi internet Anda.");
+    }
   };
 
   const handleMoveBanner = async (index: number, direction: 'up' | 'down') => {

@@ -133,6 +133,11 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
       .map((item) => `- ${item.name} (${item.quantity}x)`)
       .join('\n');
       
+    const isTransfer = order.paymentMethod === 'Transfer Bank';
+    const transferNote = isTransfer 
+      ? `\n*PENTING (TRANSFER BANK):*\nMohon kirimkan *Foto/Screenshot Bukti Transfer* setelah pesan ini ya Kak agar pesanan bisa langsung kami verifikasi & proses! 🙏\n`
+      : '';
+
     const message = encodeURIComponent(
       `*KONFIRMASI PESANAN D'FORIA*\n\n` +
       `Halo Kak! Saya baru saja melakukan pemesanan di D'Foria Kitchen:\n\n` +
@@ -143,6 +148,7 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
       `• *Catatan:* ${order.notes || '-'}\n\n` +
       `*Daftar Pesanan:*\n${itemsText}\n\n` +
       `*TOTAL TAGIHAN:* ${new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(order.totalAmount)}\n\n` +
+      transferNote +
       `Mohon segera diproses ya Kak, terima kasih! 🙏✨`
     );
     
@@ -335,8 +341,8 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
               <div className="w-full pt-1.5 text-center font-bold text-primary font-mono text-[14px]">
                 TOTAL TRANSFER: {formatPrice(successOrder.totalAmount)}
               </div>
-              <p className="text-[10px] text-gray-400 text-center leading-normal w-full pt-1">
-                Silakan lakukan transfer sesuai total tagihan dan simpan bukti pembayaran untuk verifikasi cepat.
+              <p className="text-[11px] text-[#7B1E3A] font-bold text-center leading-normal w-full pt-1.5 border-t border-cream-dark/20">
+                Setelah transfer, mohon kirimkan *Foto/Screenshot Bukti Pembayaran* ke WhatsApp bersama dengan list pesanan Anda untuk proses cepat! 🙏
               </p>
             </div>
           )}

@@ -132,8 +132,14 @@ export default function AdminMenu() {
   };
 
   const executeDeleteMenu = async (id: string) => {
-    await dbService.deleteMenu(id);
-    loadAllData();
+    if (!id) return;
+    try {
+      await dbService.deleteMenu(id);
+      loadAllData();
+    } catch (err) {
+      console.error("Gagal menghapus menu:", err);
+      alert("Gagal menghapus menu dari cloud database. Silakan periksa koneksi internet Anda.");
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

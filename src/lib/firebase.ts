@@ -313,6 +313,7 @@ export const dbService = {
         await deleteDoc(doc(db, 'menu', id));
       } catch (err) {
         console.error("Firestore error deleting menu:", err);
+        throw err;
       }
     }
 
@@ -389,6 +390,7 @@ export const dbService = {
         await deleteDoc(doc(db, 'banners', id));
       } catch (err) {
         console.error("Firestore error deleting banner:", err);
+        throw err;
       }
     }
     const local = JSON.parse(localStorage.getItem('df_banners') || '[]');
@@ -571,6 +573,7 @@ export const dbService = {
         await deleteDoc(doc(db, 'coupons', id));
       } catch (err) {
         console.error("Firestore error deleting coupon:", err);
+        throw err;
       }
     }
 
@@ -695,6 +698,7 @@ export const dbService = {
         await deleteDoc(doc(db, 'testimonials', id));
       } catch (err) {
         console.error("Firestore error deleting testimonial:", err);
+        throw err;
       }
     }
 

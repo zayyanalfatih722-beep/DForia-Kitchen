@@ -92,8 +92,14 @@ export default function AdminCoupons() {
   };
 
   const executeDeleteCoupon = async (id: string) => {
-    await dbService.deleteCoupon(id);
-    loadAllData();
+    if (!id) return;
+    try {
+      await dbService.deleteCoupon(id);
+      loadAllData();
+    } catch (err) {
+      console.error("Gagal menghapus kupon:", err);
+      alert("Gagal menghapus kupon dari cloud database. Silakan periksa koneksi internet Anda.");
+    }
   };
 
   return (
