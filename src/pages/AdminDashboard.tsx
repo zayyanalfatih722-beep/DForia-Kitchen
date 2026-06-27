@@ -17,7 +17,9 @@ import {
   LogOut, 
   ShoppingBag, 
   ArrowRight,
-  Home 
+  Home,
+  CloudUpload,
+  Check
 } from 'lucide-react';
 import { dbService } from '../lib/firebase';
 import { MenuItem, Order, StoreSettings } from '../types';
@@ -65,6 +67,30 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+  const [syncInfo, setSyncInfo] = useState<{ menusUploaded: number } | null>(null);
+
+  const handleCloudSync = async () => {
+    setSyncing(true);
+    setSyncSuccess(false);
+    try {
+      const res = await dbService.syncLocalToCloud();
+      if (res.success) {
+        setSyncSuccess(true);
+        setSyncInfo({ menusUploaded: res.menusUploaded });
+        await loadAllData(); // Refresh metrics after sync
+        setTimeout(() => setSyncSuccess(false), 5000);
+      }
+    } catch (err) {
+      console.error("Gagal sinkronisasi data ke cloud:", err);
+      alert("Gagal mengunggah data ke cloud. Pastikan jaringan internet Anda aktif.");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Stats
   const [stats, setStats] = useState({
@@ -219,6 +245,47 @@ export default function AdminDashboard() {
             <div>
               <h2 className="font-serif font-bold text-2xl text-gray-800">Selamat Datang, Admin</h2>
               <p className="text-xs text-gray-400 mt-1">Gunakan panel kontrol di bawah ini untuk mengelola semua operasional restoran Anda.</p>
+            </div>
+
+            {/* Cloud Sync Status/Fix Banner */}
+            <div className="bg-[#FFFDF9] border border-[#D4AF37]/50 rounded-[24px] p-5 shadow-soft flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
+              <div className="absolute top-0 bottom-0 left-0 w-[4px] bg-[#D4AF37]"></div>
+              <div className="space-y-1 md:max-w-2xl pl-1">
+                <div className="flex items-center space-x-2 text-[#7B1E3A]">
+                  <CloudUpload size={18} className="animate-bounce" />
+                  <h3 className="font-serif font-bold text-sm">Sinkronisasi Menu & Data ke Cloud</h3>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Jika sebelumnya Anda mengubah menu tapi di HP orang lain tidak berubah, itu terjadi karena perubahan sebelumnya tersimpan di dalam memori HP Anda sendiri (Local Storage).
+                  <span className="text-[#7B1E3A] block mt-1 font-bold">Tekan tombol sinkronisasi di bawah ini untuk mengunggah semua menu dari HP Anda ke Cloud Database, agar menu di HP orang lain terupdate secara otomatis!</span>
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 self-start md:self-auto min-w-[180px] justify-end">
+                {syncSuccess ? (
+                  <div className="flex items-center space-x-1.5 bg-emerald-50 border border-emerald-200 text-emerald-600 text-xs font-bold px-4 py-3 rounded-xl">
+                    <Check size={14} />
+                    <span>Sinkron Berhasil! ({syncInfo?.menusUploaded} Menu)</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleCloudSync}
+                    disabled={syncing}
+                    className="w-full bg-[#7B1E3A] hover:bg-[#7B1E3A]/90 disabled:bg-[#7B1E3A]/50 text-white font-bold text-[10.5px] uppercase tracking-wider py-3 px-5 rounded-xl transition-all shadow-soft duration-300 hover:scale-[1.03] active:scale-[0.97] cursor-pointer flex items-center justify-center space-x-2"
+                  >
+                    {syncing ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Mengunggah...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CloudUpload size={14} />
+                        <span>Sinkron Sekarang</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Quick Store Status Override */}

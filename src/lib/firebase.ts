@@ -21,17 +21,18 @@ import {
 } from 'firebase/firestore';
 import { MenuItem, Order, Banner, StoreSettings, Coupon, OrderStatus, Testimonial } from '../types';
 
-// Read Vite environment variables
+// Read Vite environment variables with direct fallbacks to firebase-applet-config.json to ensure
+// all devices and browsers connect to the same cloud Firestore database rather than falling back to LocalStorage.
 const firebaseConfig = {
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || "AIzaSyBq5JdQqFWvwWDvgV-33HX1qfDnmetkZu4",
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0861366744.firebaseapp.com",
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0861366744",
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0861366744.firebasestorage.app",
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || "243132776184",
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:243132776184:web:c690c7495944506c98450d"
 };
 
-const customDatabaseId = (import.meta as any).env.VITE_FIREBASE_DATABASE_ID;
+const customDatabaseId = (import.meta as any).env.VITE_FIREBASE_DATABASE_ID || "ai-studio-remixdforiakitch-32179079-ffa0-40a2-b895-41be55c04fbf";
 
 // Check if Firebase is fully configured
 const isFirebaseConfigured = 
@@ -700,5 +701,52 @@ export const dbService = {
     const local = JSON.parse(localStorage.getItem('df_testimonials') || '[]');
     const updated = local.filter((t: Testimonial) => t.id !== id);
     localStorage.setItem('df_testimonials', JSON.stringify(updated));
+  },
+
+  async syncLocalToCloud(): Promise<{ success: boolean; menusUploaded: number; settingsUploaded: boolean }> {
+    let menusUploaded = 0;
+    let settingsUploaded = false;
+    
+    if (db && isFirebaseConfigured) {
+      try {
+        // 1. Sync Menus
+        const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
+        if (localMenus.length > 0) {
+          for (const item of localMenus) {
+            await setDoc(doc(db, 'menu', item.id), item);
+            menusUploaded++;
+          }
+        }
+        
+        // 2. Sync Settings
+        const localSettings = JSON.parse(localStorage.getItem('df_settings') || '{}');
+        if (localSettings && localSettings.storeName) {
+          await setDoc(doc(db, 'settings', 'store'), localSettings);
+          settingsUploaded = true;
+        }
+
+        // 3. Sync Banners
+        const localBanners = JSON.parse(localStorage.getItem('df_banners') || '[]');
+        if (localBanners.length > 0) {
+          for (const banner of localBanners) {
+            await setDoc(doc(db, 'banners', banner.id), banner);
+          }
+        }
+
+        // 4. Sync Coupons
+        const localCoupons = JSON.parse(localStorage.getItem('df_coupons') || '[]');
+        if (localCoupons.length > 0) {
+          for (const coupon of localCoupons) {
+            await setDoc(doc(db, 'coupons', coupon.id), coupon);
+          }
+        }
+
+        return { success: true, menusUploaded, settingsUploaded };
+      } catch (err) {
+        console.error("Error during cloud sync:", err);
+        throw err;
+      }
+    }
+    return { success: false, menusUploaded: 0, settingsUploaded: false };
   }
 };
