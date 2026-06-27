@@ -10,16 +10,14 @@ import {
   Sparkles, 
   Compass, 
   MapPin, 
-  MapPinned,
-  Ticket, 
-  Percent, 
+  MapPinned, 
   Heart, 
   ShieldCheck,
   ClipboardList,
   Settings
 } from 'lucide-react';
 import { dbService } from '../lib/firebase';
-import { Banner, StoreSettings, Coupon, MenuItem } from '../types';
+import { Banner, StoreSettings, MenuItem } from '../types';
 import HeroSlider from '../components/HeroSlider';
 import PremiumInfoBar from '../components/PremiumInfoBar';
 
@@ -31,9 +29,7 @@ export default function Home({ onAddCart }: HomeProps) {
   const navigate = useNavigate();
   const [banners, setBanners] = useState<Banner[]>([]);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const FUNNY_GREETINGS = [
     "Lapar itu manusiawi, tapi kalau dibiarin kasihan ususmu lagi konser metal di dalam! 🎸",
@@ -60,17 +56,6 @@ export default function Home({ onAddCart }: HomeProps) {
 
   useEffect(() => {
     shuffleGreeting();
-    
-    // Load static coupons
-    async function loadCoupons() {
-      try {
-        const fetchedCoupons = await dbService.getCoupons();
-        setCoupons((fetchedCoupons || []).filter(c => c && c.active));
-      } catch (err) {
-        console.error("Error loading coupons:", err);
-      }
-    }
-    loadCoupons();
 
     // Subscribe to banners
     const unsubscribeBanners = dbService.subscribeBanners((fetchedBanners) => {
@@ -88,12 +73,6 @@ export default function Home({ onAddCart }: HomeProps) {
       unsubscribeSettings();
     };
   }, []);
-
-  const handleCopyCoupon = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2000);
-  };
 
   const restaurantHighlights = [
     {
@@ -213,60 +192,6 @@ export default function Home({ onAddCart }: HomeProps) {
           })}
         </div>
       </div>
-
-      {/* 5. Active Promotions & Coupons Panel */}
-      {coupons.length > 0 && (
-        <div className="space-y-4 animate-slide-up">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Ticket size={16} className="text-primary" />
-              <h3 className="font-serif text-sm font-bold text-gray-800 uppercase tracking-wider">Promo & Voucher Aktif</h3>
-            </div>
-            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/25">Spesial</span>
-          </div>
-
-          <div className="space-y-3">
-            {coupons.map((coupon) => (
-              <div 
-                key={coupon.id}
-                className="bg-white rounded-2xl p-4 border border-cream-dark/45 flex items-center justify-between gap-4 relative overflow-hidden group shadow-soft"
-              >
-                {/* Subtle luxury gold gradient line at the top of card */}
-                <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent"></div>
-                
-                <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-full blur-lg pointer-events-none"></div>
-                <div className="flex items-center space-x-3">
-                  <div className="p-2.5 rounded-xl bg-primary text-cream-light flex items-center justify-center animate-glow-pulse">
-                    <Percent size={16} />
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-1.5">
-                      <h4 className="font-mono text-xs font-bold text-primary tracking-wider">{coupon.code}</h4>
-                    </div>
-                    <p className="text-[10px] text-gray-500 font-medium mt-0.5">
-                      Potongan {coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : `Rp ${coupon.discountValue.toLocaleString('id-ID')}`}
-                    </p>
-                    <p className="text-[9px] text-gray-400">
-                      Min. Pembelian Rp {((coupon as any).minPurchase || 0).toLocaleString('id-ID')}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  id={`btn-copy-coupon-${coupon.id}`}
-                  onClick={() => handleCopyCoupon(coupon.code)}
-                  className={`text-[10px] font-bold px-3 py-2 rounded-xl border transition-all duration-300 btn-scale ${
-                    copiedCode === coupon.code 
-                      ? 'bg-green-500 text-white border-green-500' 
-                      : 'bg-white hover:bg-primary/10 text-primary border-primary/20 hover:border-primary/40'
-                  }`}
-                >
-                  {copiedCode === coupon.code ? 'Tersalin!' : 'Salin Kode'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* 6. Restoran Info Footer Section */}
       <div className="bg-white/75 backdrop-blur-md border border-cream-dark/50 rounded-[24px] p-5 text-center space-y-3 shadow-medium relative overflow-hidden">

@@ -20,7 +20,6 @@ import AdminBanner from './pages/AdminBanner';
 import AdminCashier from './pages/AdminCashier';
 import AdminFinance from './pages/AdminFinance';
 import AdminReports from './pages/AdminReports';
-import AdminCoupons from './pages/AdminCoupons';
 import AdminSettings from './pages/AdminSettings';
 import Testimonials from './pages/Testimonials';
 import AdminTestimonials from './pages/AdminTestimonials';
@@ -165,7 +164,6 @@ function AppContent() {
         <Route path="/admin/cashier" element={<AdminCashier />} />
         <Route path="/admin/finance" element={<AdminFinance />} />
         <Route path="/admin/reports" element={<AdminReports />} />
-        <Route path="/admin/coupons" element={<AdminCoupons />} />
         <Route path="/admin/testimonials" element={<AdminTestimonials />} />
         <Route path="/admin/settings" element={<AdminSettings />} />
 
