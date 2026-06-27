@@ -60,21 +60,33 @@ export default function Home({ onAddCart }: HomeProps) {
 
   useEffect(() => {
     shuffleGreeting();
-    async function loadLobbyData() {
+    
+    // Load static coupons
+    async function loadCoupons() {
       try {
-        const fetchedBanners = await dbService.getBanners();
-        const fetchedSettings = await dbService.getSettings();
         const fetchedCoupons = await dbService.getCoupons();
-        setBanners(fetchedBanners || []);
-        setSettings(fetchedSettings);
         setCoupons((fetchedCoupons || []).filter(c => c && c.active));
       } catch (err) {
-        console.error("Error loading lobby data:", err);
-      } finally {
-        setLoading(false);
+        console.error("Error loading coupons:", err);
       }
     }
-    loadLobbyData();
+    loadCoupons();
+
+    // Subscribe to banners
+    const unsubscribeBanners = dbService.subscribeBanners((fetchedBanners) => {
+      setBanners(fetchedBanners || []);
+    });
+
+    // Subscribe to settings
+    const unsubscribeSettings = dbService.subscribeSettings((fetchedSettings) => {
+      setSettings(fetchedSettings);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribeBanners();
+      unsubscribeSettings();
+    };
   }, []);
 
   const handleCopyCoupon = (code: string) => {

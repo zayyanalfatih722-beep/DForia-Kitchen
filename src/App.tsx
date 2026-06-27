@@ -67,13 +67,12 @@ function AppContent() {
     }
   }, [appliedCoupon]);
 
-  // Fetch store settings on mount
+  // Subscribe to store settings real-time
   useEffect(() => {
-    async function loadSettings() {
-      const data = await dbService.getSettings();
+    const unsubscribe = dbService.subscribeSettings((data) => {
       setSettings(data);
-    }
-    loadSettings();
+    });
+    return () => unsubscribe();
   }, []);
 
   const handleAddCart = (item: MenuItem) => {

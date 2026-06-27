@@ -17,7 +17,8 @@ import {
   getDoc,
   query,
   where,
-  orderBy
+  orderBy,
+  onSnapshot
 } from 'firebase/firestore';
 import { MenuItem, Order, Banner, StoreSettings, Coupon, OrderStatus, Testimonial } from '../types';
 
@@ -280,6 +281,54 @@ export const dbService = {
     return [];
   },
 
+  subscribeMenus(onUpdate: (menus: MenuItem[]) => void): () => void {
+    if (db) {
+      try {
+        const q = collection(db, 'menu');
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const menus: MenuItem[] = [];
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            menus.push({
+              id: doc.id,
+              ...data,
+              stock: data.stock !== undefined ? data.stock : 20,
+              isAvailable: data.isAvailable !== undefined ? data.isAvailable : (data.available !== undefined ? data.available : true)
+            } as MenuItem);
+          });
+          if (menus.length > 0) {
+            onUpdate(menus);
+          } else {
+            onUpdate(DEFAULT_MENUS);
+          }
+        }, (err) => {
+          console.error("onSnapshot error for menus:", err);
+        });
+        return unsubscribe;
+      } catch (err) {
+        console.error("Error setting up onSnapshot for menus:", err);
+      }
+    }
+    
+    const getLocal = () => {
+      const localRaw = localStorage.getItem('df_menus');
+      if (localRaw) {
+        const parsed = JSON.parse(localRaw) as MenuItem[];
+        return parsed.map(m => ({
+          ...m,
+          stock: m.stock !== undefined ? m.stock : 20,
+          isAvailable: m.isAvailable !== undefined ? m.isAvailable : (m.available !== undefined ? m.available : true)
+        }));
+      }
+      return DEFAULT_MENUS;
+    };
+    onUpdate(getLocal());
+    const interval = setInterval(() => {
+      onUpdate(getLocal());
+    }, 3000);
+    return () => clearInterval(interval);
+  },
+
   async saveMenu(item: MenuItem): Promise<void> {
     const isNew = !item.id;
     const finalItem = {
@@ -346,6 +395,39 @@ export const dbService = {
       }
     }
     return JSON.parse(localStorage.getItem('df_banners') || '[]');
+  },
+
+  subscribeBanners(onUpdate: (banners: Banner[]) => void): () => void {
+    if (db) {
+      try {
+        const q = query(collection(db, 'banners'), orderBy('order', 'asc'));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const banners: Banner[] = [];
+          querySnapshot.forEach((doc) => {
+            banners.push({ id: doc.id, ...doc.data() } as Banner);
+          });
+          if (banners.length > 0) {
+            onUpdate(banners);
+          } else {
+            onUpdate(DEFAULT_BANNERS);
+          }
+        }, (err) => {
+          console.error("onSnapshot error for banners:", err);
+        });
+        return unsubscribe;
+      } catch (err) {
+        console.error("Error setting up onSnapshot for banners:", err);
+      }
+    }
+    
+    const getLocal = () => {
+      return JSON.parse(localStorage.getItem('df_banners') || '[]');
+    };
+    onUpdate(getLocal());
+    const interval = setInterval(() => {
+      onUpdate(getLocal());
+    }, 4000);
+    return () => clearInterval(interval);
   },
 
   async saveBanners(banners: Banner[]): Promise<void> {
@@ -431,14 +513,46 @@ export const dbService = {
       try {
         await setDoc(doc(db, 'orders', order.id), order);
         console.log("Order saved to Firestore");
+
+        // Deduct stock for each item in the order in Firestore
+        for (const item of order.items) {
+          const menuDocRef = doc(db, 'menu', item.menuItemId);
+          const menuSnap = await getDoc(menuDocRef);
+          if (menuSnap.exists()) {
+            const data = menuSnap.data();
+            const currentStock = data.stock !== undefined ? data.stock : 20;
+            const newStock = Math.max(0, currentStock - item.quantity);
+            await updateDoc(menuDocRef, { stock: newStock });
+            console.log(`Deducted stock for ${item.name} from ${currentStock} to ${newStock} in Firestore`);
+          }
+        }
       } catch (err) {
-        console.error("Firestore error adding order:", err);
+        console.error("Firestore error adding order or deducting stock:", err);
       }
     }
 
     const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
     local.push(order);
     localStorage.setItem('df_orders', JSON.stringify(local));
+
+    // Also deduct stock locally
+    try {
+      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
+      let updatedAny = false;
+      for (const item of order.items) {
+        const idx = localMenus.findIndex((m: any) => m.id === item.menuItemId);
+        if (idx >= 0) {
+          const currentStock = localMenus[idx].stock !== undefined ? localMenus[idx].stock : 20;
+          localMenus[idx].stock = Math.max(0, currentStock - item.quantity);
+          updatedAny = true;
+        }
+      }
+      if (updatedAny) {
+        localStorage.setItem('df_menus', JSON.stringify(localMenus));
+      }
+    } catch (err) {
+      console.warn("Failed to update local menu stock:", err);
+    }
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
@@ -500,6 +614,46 @@ export const dbService = {
       };
     }
     return DEFAULT_SETTINGS;
+  },
+
+  subscribeSettings(onUpdate: (settings: StoreSettings) => void): () => void {
+    if (db) {
+      try {
+        const unsubscribe = onSnapshot(doc(db, 'settings', 'store_settings'), (docSnap) => {
+          if (docSnap.exists()) {
+            const fetched = docSnap.data() as StoreSettings;
+            onUpdate({
+              ...DEFAULT_SETTINGS,
+              ...fetched
+            });
+          } else {
+            onUpdate(DEFAULT_SETTINGS);
+          }
+        }, (err) => {
+          console.error("onSnapshot error for settings:", err);
+        });
+        return unsubscribe;
+      } catch (err) {
+        console.error("Error setting up onSnapshot for settings:", err);
+      }
+    }
+    
+    const getLocal = () => {
+      const localRaw = localStorage.getItem('df_settings');
+      if (localRaw) {
+        const parsed = JSON.parse(localRaw) as StoreSettings;
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed
+        };
+      }
+      return DEFAULT_SETTINGS;
+    };
+    onUpdate(getLocal());
+    const interval = setInterval(() => {
+      onUpdate(getLocal());
+    }, 4000);
+    return () => clearInterval(interval);
   },
 
   async saveSettings(settings: StoreSettings): Promise<void> {

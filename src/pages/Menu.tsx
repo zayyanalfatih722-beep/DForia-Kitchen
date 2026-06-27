@@ -23,17 +23,11 @@ export default function Menu({ onAddCart }: MenuProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadMenus() {
-      try {
-        const fetched = await dbService.getMenus();
-        setMenus(fetched);
-      } catch (err) {
-        console.error("Error loading menus:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadMenus();
+    const unsubscribe = dbService.subscribeMenus((fetched) => {
+      setMenus(fetched);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   const categories = ['Semua', 'Makanan Berat', 'Minuman', 'Cemilan'];

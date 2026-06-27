@@ -296,26 +296,6 @@ export default function AdminCashier() {
                         className="w-full bg-cream/10 px-3 py-2 rounded-xl border border-cream-dark/45 text-xs"
                       />
                     </div>
-
-                    <div>
-                      <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Kupon Promo Toko</label>
-                      <div className="flex space-x-1.5">
-                        <input
-                          id="cashier-coupon-code"
-                          type="text"
-                          placeholder="Kode kupon..."
-                          value={cashierCoupon}
-                          onChange={(e) => setCashierCoupon(e.target.value)}
-                          className="flex-1 bg-cream/10 px-3 py-2 rounded-xl border border-cream-dark/45 text-xs font-mono"
-                        />
-                        <button
-                          onClick={handleApplyCashierCoupon}
-                          className="bg-primary hover:bg-primary-dark text-white text-[10px] font-bold px-3 rounded-xl cursor-pointer"
-                        >
-                          Terapkan
-                        </button>
-                      </div>
-                    </div>
                   </div>
                 </div>
 

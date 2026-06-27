@@ -212,13 +212,6 @@ export default function AdminDashboard() {
       color: 'text-purple-600 bg-purple-50'
     },
     {
-      title: 'Kupon',
-      description: 'Manajemen kode promo diskon',
-      icon: <Ticket size={20} />,
-      path: '/admin/coupons',
-      color: 'text-indigo-600 bg-indigo-50'
-    },
-    {
       title: 'Pengaturan',
       description: 'Konfigurasi profil & detail toko',
       icon: <SettingsIcon size={20} />,

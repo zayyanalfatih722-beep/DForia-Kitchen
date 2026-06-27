@@ -194,44 +194,6 @@ export default function Cart({
         ))}
       </div>
 
-      {/* Coupon code container */}
-      <div className="bg-white rounded-[20px] p-4 border border-cream-dark/30 shadow-soft mb-6">
-        <div className="flex items-center space-x-2 text-xs font-bold text-gray-800 mb-3">
-          <Ticket size={16} className="text-primary" />
-          <span>Kupon Diskon D'Foria</span>
-        </div>
-        <div className="flex space-x-2">
-          <div className="relative flex-1">
-            <input
-              id="coupon-input"
-              type="text"
-              placeholder="Masukkan kode kupon"
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value)}
-              disabled={!!appliedCoupon}
-              className="w-full bg-cream/30 text-gray-700 placeholder-gray-400 text-xs px-3.5 py-2.5 rounded-xl border border-cream-dark/40 focus:outline-none focus:ring-1 focus:ring-primary/45 focus:border-primary disabled:bg-gray-50 disabled:text-gray-400 disabled:border-gray-200"
-            />
-          </div>
-          {appliedCoupon ? (
-            <button
-              onClick={handleRemoveCoupon}
-              className="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold px-4 rounded-xl transition-colors cursor-pointer"
-            >
-              Hapus
-            </button>
-          ) : (
-            <button
-              onClick={handleApplyCoupon}
-              className="bg-primary hover:bg-primary-dark text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
-            >
-              Gunakan
-            </button>
-          )}
-        </div>
-        {couponError && <p className="text-[10px] text-red-600 mt-1.5 font-medium">{couponError}</p>}
-        {couponSuccess && <p className="text-[10px] text-green-600 mt-1.5 font-semibold">{couponSuccess}</p>}
-      </div>
-
       {/* Order Summary Breakdowns */}
       <div className="bg-white rounded-[24px] p-4.5 border border-cream-dark/30 shadow-soft mb-6 space-y-3">
         <h3 className="font-serif text-sm font-bold text-gray-800 border-b border-cream/50 pb-2 mb-1">Rincian Pembayaran</h3>

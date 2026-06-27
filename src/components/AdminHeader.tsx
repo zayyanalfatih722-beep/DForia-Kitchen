@@ -90,11 +90,6 @@ export default function AdminHeader() {
       path: '/admin/reports'
     },
     {
-      label: 'Kupon',
-      icon: Ticket,
-      path: '/admin/coupons'
-    },
-    {
       label: 'Testimoni',
       icon: MessageSquare,
       path: '/admin/testimonials'

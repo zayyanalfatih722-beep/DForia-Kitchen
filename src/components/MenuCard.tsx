@@ -94,8 +94,10 @@ export default function MenuCard({ item, onAdd }: MenuCardProps) {
         <div className="flex items-center justify-between mt-auto pt-1 border-t border-cream/50">
           <div className="flex flex-col">
             <span className="font-mono text-[13px] font-bold text-primary">{formattedPrice}</span>
-            {isAvailable && !isOutOfStock && stock <= 5 && (
-              <span className="text-[8px] text-amber-600 font-bold">Sisa {stock} porsi!</span>
+            {isAvailable && !isOutOfStock && (
+              <span className={`text-[9.5px] font-bold ${stock <= 5 ? 'text-amber-600 animate-pulse' : 'text-gray-500'}`}>
+                Sisa {stock} porsi
+              </span>
             )}
           </div>
           {!isAvailable ? (
