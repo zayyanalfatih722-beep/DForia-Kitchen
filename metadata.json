@@ -1,0 +1,8 @@
+{
+  "name": "Remix: D\u0027Foria Kitchen",
+  "description": "A premium full-stack restaurant platform featuring mobile-first ordering and a comprehensive admin dashboard for seamless business management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

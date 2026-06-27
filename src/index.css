@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-primary: #7B1E3A;
+  --color-primary-dark: #5C1429;
+  --color-primary-light: #9B304F;
+  --color-cream: #F5F1E8;
+  --color-cream-dark: #EAE3D2;
+  --color-cream-light: #FAF8F5;
+
+  --shadow-soft: 0 4px 20px -2px rgba(123, 30, 58, 0.05), 0 2px 10px -1px rgba(0, 0, 0, 0.03);
+  --shadow-medium: 0 10px 30px -5px rgba(123, 30, 58, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+}
+
+/* Custom styles for professional scrollbar and background */
+body {
+  background-color: var(--color-cream);
+  color: #2D2522;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .font-serif {
+  font-family: var(--font-serif);
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Smooth active state transitions */
+.active-nav-item {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Custom animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Premium UI animations and effects */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 30s linear infinite;
+}
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.25) 20%,
+    rgba(255, 255, 255, 0.55) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2.5s infinite;
+  content: '';
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.bg-skeleton-shimmer {
+  background: linear-gradient(90deg, #f3ede2 25%, #eae3d2 50%, #f3ede2 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s infinite linear;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(123, 30, 58, 0.15), 0 0 8px rgba(123, 30, 58, 0.05); }
+  50% { box-shadow: 0 0 12px rgba(123, 30, 58, 0.45), 0 0 20px rgba(123, 30, 58, 0.2); }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s infinite ease-in-out;
+}
+
+@keyframes float-pulse {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-5px) scale(1.05); }
+}
+
+.animate-float-pulse {
+  animation: float-pulse 2.5s infinite ease-in-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px -10px rgba(123, 30, 58, 0.15), 0 4px 12px -5px rgba(0, 0, 0, 0.05);
+}
+
+.btn-scale {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-scale:active {
+  transform: scale(0.95);
+}
+
+@keyframes textShimmer {
+  0% { background-position: -150% 0; }
+  100% { background-position: 150% 0; }
+}
+
+.animate-text-shimmer {
+  background: linear-gradient(90deg, #2D2522 35%, #7B1E3A 50%, #2D2522 65%);
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: textShimmer 4s linear infinite;
+}
