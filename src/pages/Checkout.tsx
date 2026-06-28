@@ -125,7 +125,13 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
     }
   };
 
-  const sendWhatsAppOrder = (order: Order) => {
+  const sendWhatsAppOrder = async (order: Order) => {
+    try {
+      await dbService.decrementOrderStock(order.id);
+    } catch (err) {
+      console.error("Gagal mengurangi stok:", err);
+    }
+
     const storeWa = settings?.whatsapp || '6282255994981';
     const cleanPhone = storeWa.replace(/[^0-9]/g, '');
     

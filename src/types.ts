@@ -51,6 +51,7 @@ export interface Order {
   paymentMethod: PaymentMethod;
   status: OrderStatus;
   createdAt: string; // ISO string
+  stockDecremented?: boolean;
 }
 
 export interface StoreSettings {

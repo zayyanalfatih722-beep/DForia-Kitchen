@@ -81,7 +81,8 @@
         "totalAmount": { "type": "number" },
         "paymentMethod": { "type": "string" },
         "status": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "stockDecremented": { "type": "boolean" }
       },
       "required": ["id", "customerName", "customerPhone", "items", "totalAmount", "status", "createdAt"]
     },

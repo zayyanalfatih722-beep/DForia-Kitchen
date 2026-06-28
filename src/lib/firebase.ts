@@ -267,7 +267,8 @@ export const dbService = {
           return DEFAULT_MENUS;
         }
       } catch (err) {
-        console.warn("Firestore error reading menus, fallback to local:", err);
+        console.error("Firestore error reading menus:", err);
+        throw err;
       }
     }
     const localRaw = localStorage.getItem('df_menus');
@@ -341,8 +342,10 @@ export const dbService = {
       try {
         await setDoc(doc(db, 'menu', finalItem.id), finalItem);
         console.log("Menu saved to Firestore");
+        return;
       } catch (err) {
         console.error("Firestore error saving menu:", err);
+        throw err;
       }
     }
 
@@ -361,6 +364,7 @@ export const dbService = {
     if (db) {
       try {
         await deleteDoc(doc(db, 'menu', id));
+        return;
       } catch (err) {
         console.error("Firestore error deleting menu:", err);
         throw err;
@@ -392,7 +396,8 @@ export const dbService = {
           return DEFAULT_BANNERS;
         }
       } catch (err) {
-        console.warn("Firestore error reading banners, fallback to local:", err);
+        console.error("Firestore error reading banners:", err);
+        throw err;
       }
     }
     return JSON.parse(localStorage.getItem('df_banners') || '[]');
@@ -437,8 +442,10 @@ export const dbService = {
         for (const b of banners) {
           await setDoc(doc(db, 'banners', b.id), b);
         }
+        return;
       } catch (err) {
         console.error("Firestore error saving banners:", err);
+        throw err;
       }
     }
     localStorage.setItem('df_banners', JSON.stringify(banners));
@@ -453,8 +460,10 @@ export const dbService = {
     if (db) {
       try {
         await setDoc(doc(db, 'banners', finalBanner.id), finalBanner);
+        return;
       } catch (err) {
         console.error("Firestore error saving banner:", err);
+        throw err;
       }
     }
     const local = JSON.parse(localStorage.getItem('df_banners') || '[]');
@@ -471,6 +480,7 @@ export const dbService = {
     if (db) {
       try {
         await deleteDoc(doc(db, 'banners', id));
+        return;
       } catch (err) {
         console.error("Firestore error deleting banner:", err);
         throw err;
@@ -501,7 +511,8 @@ export const dbService = {
           return [...DEFAULT_ORDERS];
         }
       } catch (err) {
-        console.warn("Firestore error reading orders, fallback to local:", err);
+        console.error("Firestore error reading orders:", err);
+        throw err;
       }
     }
     const orders = JSON.parse(localStorage.getItem('df_orders') || '[]');
@@ -543,39 +554,61 @@ export const dbService = {
   },
 
   async addOrder(order: Order): Promise<void> {
+    const orderWithFlag = { ...order, stockDecremented: false };
     if (db) {
       try {
-        // Pre-flight to resolve exact Document IDs for all items in the order
-        const resolvedItems: { ref: any; quantity: number; name: string }[] = [];
-        for (const item of order.items) {
-          if (!item.menuItemId) continue;
-          let menuDocRef = doc(db, 'menu', item.menuItemId);
-          let menuSnap = await getDoc(menuDocRef);
+        const orderRef = doc(db, 'orders', order.id);
+        await setDoc(orderRef, orderWithFlag);
+        console.log("Order saved to Firestore successfully without decrementing stock (will decrement on WhatsApp click)");
+        return;
+      } catch (err) {
+        console.error("Firestore error adding order:", err);
+        throw err;
+      }
+    }
 
-          // Fallback search by name if ID is mismatched or not found in Firestore
-          if (!menuSnap.exists()) {
-            console.log(`Pre-flight: ID ${item.menuItemId} not found. Searching by name "${item.name}"...`);
-            const q = query(collection(db, 'menu'), where('name', '==', item.name));
-            const querySnap = await getDocs(q);
-            if (!querySnap.empty) {
-              const matchedDoc = querySnap.docs[0];
-              menuDocRef = doc(db, 'menu', matchedDoc.id);
-              console.log(`Pre-flight: Resolved name "${item.name}" to Firestore ID ${matchedDoc.id}`);
-            } else {
-              console.warn(`Pre-flight: Menu item "${item.name}" not found in Firestore. Skipping.`);
-              continue;
-            }
-          }
-          resolvedItems.push({
-            ref: menuDocRef,
-            quantity: item.quantity,
-            name: item.name
-          });
+    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
+    local.push(orderWithFlag);
+    localStorage.setItem('df_orders', JSON.stringify(local));
+  },
+
+  async decrementOrderStock(orderId: string): Promise<void> {
+    if (db) {
+      try {
+        const orderRef = doc(db, 'orders', orderId);
+        const orderSnap = await getDoc(orderRef);
+        if (!orderSnap.exists()) {
+          console.error(`Order ${orderId} not found in Firestore for stock decrement.`);
+          return;
+        }
+        const orderData = orderSnap.data() as Order;
+        if (orderData.stockDecremented) {
+          console.log(`Order ${orderId} already had its stock decremented. Skipping.`);
+          return;
         }
 
-        // Run transaction to atomically write order and decrement menu stock levels
+        // Run a transaction to decrement stock and mark order as decremented
         await runTransaction(db, async (transaction) => {
-          // 1. Perform all reads first (required by Firestore transactions)
+          // Re-fetch order to ensure consistency inside transaction
+          const tOrderSnap = await transaction.get(orderRef);
+          if (!tOrderSnap.exists()) return;
+          const tOrderData = tOrderSnap.data() as Order;
+          if (tOrderData.stockDecremented) return;
+
+          // 1. Fetch all menu items referenced in the order items to find their current stock
+          const resolvedItems: { ref: any; quantity: number; menuItemId: string; name: string }[] = [];
+          for (const item of tOrderData.items) {
+            if (item.menuItemId) {
+              const menuRef = doc(db, 'menu', item.menuItemId);
+              resolvedItems.push({
+                ref: menuRef,
+                quantity: item.quantity,
+                menuItemId: item.menuItemId,
+                name: item.name
+              });
+            }
+          }
+
           const readSnapshots: { resolved: any; data: any }[] = [];
           for (const resolved of resolvedItems) {
             const snap = await transaction.get(resolved.ref);
@@ -587,16 +620,11 @@ export const dbService = {
             }
           }
 
-          // 2. Perform all writes
-          // Save the order document
-          const orderRef = doc(db, 'orders', order.id);
-          transaction.set(orderRef, order);
-
-          // Update each resolved menu item's stock level atomically
+          // 2. Perform updates
+          // Decrement stock for each menu item
           for (const entry of readSnapshots) {
             const currentStock = entry.data.stock !== undefined ? Number(entry.data.stock) : 20;
             const newStock = Math.max(0, currentStock - entry.resolved.quantity);
-            
             const updates: any = { stock: newStock };
             if (newStock <= 0) {
               updates.available = false;
@@ -604,68 +632,67 @@ export const dbService = {
             transaction.update(entry.resolved.ref, updates);
             console.log(`Transaction: Atomically decremented ${entry.resolved.name} stock from ${currentStock} to ${newStock}`);
           }
+
+          // Mark the order as decremented
+          transaction.update(orderRef, { stockDecremented: true });
         });
 
-        console.log("Order saved and stock levels decremented atomically via Firestore transaction successfully!");
+        console.log(`Successfully decremented stock for order ${orderId} on WhatsApp forward!`);
+        return;
       } catch (err) {
-        console.error("Firestore transaction error adding order or decrementing stock:", err);
+        console.error("Firestore error decrementing order stock:", err);
+        throw err;
       }
     }
 
+    // --- LOCAL STORAGE FALLBACK ---
     const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    local.push(order);
-    localStorage.setItem('df_orders', JSON.stringify(local));
-
-    // Also deduct stock locally
-    try {
-      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
-      let updatedAny = false;
-      for (const item of order.items) {
-        const idx = localMenus.findIndex((m: any) => m.id === item.menuItemId || m.name === item.name);
-        if (idx >= 0) {
-          const currentStock = localMenus[idx].stock !== undefined ? Number(localMenus[idx].stock) : 20;
-          const newStock = Math.max(0, currentStock - item.quantity);
-          localMenus[idx].stock = newStock;
-          if (newStock <= 0) {
-            localMenus[idx].available = false;
+    const index = local.findIndex((o: Order) => o.id === orderId);
+    if (index >= 0) {
+      const order = local[index];
+      if (!order.stockDecremented) {
+        const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
+        for (const item of order.items) {
+          const menuIdx = localMenus.findIndex((m: any) => m.id === item.menuItemId);
+          if (menuIdx >= 0) {
+            const currentStock = localMenus[menuIdx].stock !== undefined ? Number(localMenus[menuIdx].stock) : 20;
+            const newStock = Math.max(0, currentStock - item.quantity);
+            localMenus[menuIdx].stock = newStock;
+            if (newStock <= 0) {
+              localMenus[menuIdx].available = false;
+            }
           }
-          updatedAny = true;
         }
-      }
-      if (updatedAny) {
+        order.stockDecremented = true;
+        localStorage.setItem('df_orders', JSON.stringify(local));
         localStorage.setItem('df_menus', JSON.stringify(localMenus));
       }
-    } catch (err) {
-      console.warn("Failed to update local menu stock:", err);
     }
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
-    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    const index = local.findIndex((o: Order) => o.id === orderId);
-    let orderToSave: Order | null = null;
-    if (index >= 0) {
-      local[index].status = status;
-      localStorage.setItem('df_orders', JSON.stringify(local));
-      orderToSave = local[index];
-    }
-
     if (db) {
       try {
         const orderRef = doc(db, 'orders', orderId);
         const orderSnap = await getDoc(orderRef);
         if (orderSnap.exists()) {
           await updateDoc(orderRef, { status });
-        } else if (orderToSave) {
-          // If it doesn't exist in Firestore but exists locally, write the whole thing
-          await setDoc(orderRef, orderToSave);
         } else {
           // Fallback merge
           await setDoc(orderRef, { status }, { merge: true });
         }
+        return;
       } catch (err) {
         console.error("Firestore error updating order status:", err);
+        throw err;
       }
+    }
+
+    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
+    const index = local.findIndex((o: Order) => o.id === orderId);
+    if (index >= 0) {
+      local[index].status = status;
+      localStorage.setItem('df_orders', JSON.stringify(local));
     }
   },
 
@@ -687,7 +714,8 @@ export const dbService = {
           return DEFAULT_SETTINGS;
         }
       } catch (err) {
-        console.warn("Firestore error reading settings, fallback to local:", err);
+        console.error("Firestore error reading settings:", err);
+        throw err;
       }
     }
     const localRaw = localStorage.getItem('df_settings');
@@ -747,6 +775,7 @@ export const dbService = {
     if (db) {
       try {
         await setDoc(doc(db, 'settings', 'store_settings'), cleanedSettings);
+        return;
       } catch (err) {
         console.error("Firestore error saving settings:", err);
         throw err;
@@ -775,7 +804,8 @@ export const dbService = {
           return DEFAULT_COUPONS;
         }
       } catch (err) {
-        console.warn("Firestore error reading coupons, fallback to local:", err);
+        console.error("Firestore error reading coupons:", err);
+        throw err;
       }
     }
     return JSON.parse(localStorage.getItem('df_coupons') || '[]');
@@ -791,8 +821,10 @@ export const dbService = {
     if (db) {
       try {
         await setDoc(doc(db, 'coupons', finalCoupon.id), finalCoupon);
+        return;
       } catch (err) {
         console.error("Firestore error saving coupon:", err);
+        throw err;
       }
     }
 
@@ -810,6 +842,7 @@ export const dbService = {
     if (db) {
       try {
         await deleteDoc(doc(db, 'coupons', id));
+        return;
       } catch (err) {
         console.error("Firestore error deleting coupon:", err);
         throw err;
@@ -897,7 +930,8 @@ export const dbService = {
         });
         return list;
       } catch (err) {
-        console.warn("Firestore error reading testimonials, fallback to local:", err);
+        console.error("Firestore error reading testimonials:", err);
+        throw err;
       }
     }
     const local = JSON.parse(localStorage.getItem('df_testimonials') || '[]');
@@ -920,8 +954,10 @@ export const dbService = {
           message: newTestimonial.message,
           createdAt: newTestimonial.createdAt
         });
+        return newTestimonial;
       } catch (err) {
         console.error("Firestore error saving testimonial:", err);
+        throw err;
       }
     }
 
@@ -935,6 +971,7 @@ export const dbService = {
     if (db && isFirebaseConfigured) {
       try {
         await deleteDoc(doc(db, 'testimonials', id));
+        return;
       } catch (err) {
         console.error("Firestore error deleting testimonial:", err);
         throw err;
@@ -1006,7 +1043,7 @@ export const dbService = {
 
   async reconcileStockWithOrders(): Promise<void> {
     try {
-      console.log("Starting stock level reconciliation...");
+      console.log("Starting stock level reconciliation with typo-tolerant matching...");
       let menus: MenuItem[] = [];
       let orders: Order[] = [];
 
@@ -1024,51 +1061,67 @@ export const dbService = {
           });
         } catch (dbErr) {
           console.error("Firestore error in reconciliation:", dbErr);
+          throw dbErr;
         }
-      }
 
-      // Fallback or merge with local storage
-      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
-      const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
+        // Under Firestore mode, strictly use Firestore orders & menus, NO fallback to local storage
+        const isMenuMatch = (dbMenuName: string, dbMenuId: string, orderItemName: string, orderItemId: string) => {
+          if (orderItemId && dbMenuId === orderItemId) return true;
+          
+          const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normDbName = normalize(dbMenuName);
+          const normOrderItemName = normalize(orderItemName);
+          
+          if (!normDbName || !normOrderItemName) return false;
+          if (normDbName === normOrderItemName) return true;
+          if (normDbName.includes(normOrderItemName) || normOrderItemName.includes(normDbName)) return true;
+          
+          // Spaghetti/Spagheti/Spageti variations
+          const isSpag = (s: string) => s.includes('spag') || s.includes('spah');
+          if (isSpag(normDbName) && isSpag(normOrderItemName)) return true;
+          
+          // Nasi Goreng variations
+          const isNasGor = (s: string) => s.includes('nasigoreng') || s.includes('nasgor');
+          if (isNasGor(normDbName) && isNasGor(normOrderItemName)) return true;
+          
+          // Ayam Bakar variations
+          const isAyamBakar = (s: string) => s.includes('ayambakar');
+          if (isAyamBakar(normDbName) && isAyamBakar(normOrderItemName)) return true;
 
-      // If menus list is empty (e.g., in local mode), use local menus or default menus
-      if (menus.length === 0) {
-        menus = localMenus.length > 0 ? localMenus : DEFAULT_MENUS;
-      }
-      // Combine orders to make sure we don't miss any local tests or synced ones
-      const allOrdersMap = new Map<string, Order>();
-      orders.forEach(o => allOrdersMap.set(o.id, o));
-      localOrders.forEach((o: Order) => allOrdersMap.set(o.id, o));
-      const allOrders = Array.from(allOrdersMap.values());
+          // Kopi Susu variations
+          const isKopi = (s: string) => s.includes('kopisusu') || s.includes('kopi');
+          if (isKopi(normDbName) && isKopi(normOrderItemName)) return true;
 
-      // Calculate total ordered quantities per menu item (match by ID or Name)
-      const orderedQuantities: { [key: string]: number } = {};
-      for (const order of allOrders) {
-        if (order.items && Array.isArray(order.items)) {
-          for (const item of order.items) {
-            const menuItemId = item.menuItemId;
-            const name = item.name;
-            const qty = Number(item.quantity) || 0;
+          return false;
+        };
 
-            const matchedMenu = menus.find(m => m.id === menuItemId || m.name === name);
-            if (matchedMenu) {
-              orderedQuantities[matchedMenu.id] = (orderedQuantities[matchedMenu.id] || 0) + qty;
+        const orderedQuantities: { [key: string]: number } = {};
+        for (const order of orders) {
+          if (order.stockDecremented === false) {
+            continue;
+          }
+          if (order.items && Array.isArray(order.items)) {
+            for (const item of order.items) {
+              const menuItemId = item.menuItemId;
+              const name = item.name;
+              const qty = Number(item.quantity) || 0;
+
+              const matchedMenu = menus.find(m => isMenuMatch(m.name, m.id, name, menuItemId || ''));
+              if (matchedMenu) {
+                orderedQuantities[matchedMenu.id] = (orderedQuantities[matchedMenu.id] || 0) + qty;
+              }
             }
           }
         }
-      }
 
-      console.log("Reconciliation ordered quantities map:", orderedQuantities);
+        console.log("Reconciliation ordered quantities map (typo-tolerant):", orderedQuantities);
 
-      // Update Firestore and LocalStorage
-      for (const menu of menus) {
-        const totalOrdered = orderedQuantities[menu.id] || 0;
-        const startingStock = 20; // Default starting stock as explicitly stated by user
-        const newStock = Math.max(0, startingStock - totalOrdered);
-        const available = newStock > 0;
+        for (const menu of menus) {
+          const totalOrdered = orderedQuantities[menu.id] || 0;
+          const startingStock = 20; // Default starting stock
+          const newStock = Math.max(0, startingStock - totalOrdered);
+          const available = newStock > 0;
 
-        // 1. Update Firestore if connected
-        if (db) {
           try {
             const menuRef = doc(db, 'menu', menu.id);
             await updateDoc(menuRef, {
@@ -1081,8 +1134,72 @@ export const dbService = {
             console.warn(`Failed to update Firestore stock for ${menu.name}:`, fsErr);
           }
         }
+        console.log("Stock levels successfully reconciled and synchronized with Firestore order history!");
+        return;
+      }
 
-        // 2. Update LocalStorage copy
+      // --- LOCAL FALLBACK MODE ---
+      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
+      const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
+
+      if (menus.length === 0) {
+        menus = localMenus.length > 0 ? localMenus : DEFAULT_MENUS;
+      }
+      const allOrdersMap = new Map<string, Order>();
+      localOrders.forEach((o: Order) => allOrdersMap.set(o.id, o));
+      const allOrders = Array.from(allOrdersMap.values());
+
+      const isMenuMatchLocal = (dbMenuName: string, dbMenuId: string, orderItemName: string, orderItemId: string) => {
+        if (orderItemId && dbMenuId === orderItemId) return true;
+        
+        const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normDbName = normalize(dbMenuName);
+        const normOrderItemName = normalize(orderItemName);
+        
+        if (!normDbName || !normOrderItemName) return false;
+        if (normDbName === normOrderItemName) return true;
+        if (normDbName.includes(normOrderItemName) || normOrderItemName.includes(normDbName)) return true;
+        
+        const isSpag = (s: string) => s.includes('spag') || s.includes('spah');
+        if (isSpag(normDbName) && isSpag(normOrderItemName)) return true;
+        
+        const isNasGor = (s: string) => s.includes('nasigoreng') || s.includes('nasgor');
+        if (isNasGor(normDbName) && isNasGor(normOrderItemName)) return true;
+        
+        const isAyamBakar = (s: string) => s.includes('ayambakar');
+        if (isAyamBakar(normDbName) && isAyamBakar(normOrderItemName)) return true;
+
+        const isKopi = (s: string) => s.includes('kopisusu') || s.includes('kopi');
+        if (isKopi(normDbName) && isKopi(normOrderItemName)) return true;
+
+        return false;
+      };
+
+      const orderedQuantitiesLocal: { [key: string]: number } = {};
+      for (const order of allOrders) {
+        if (order.stockDecremented === false) {
+          continue;
+        }
+        if (order.items && Array.isArray(order.items)) {
+          for (const item of order.items) {
+            const menuItemId = item.menuItemId;
+            const name = item.name;
+            const qty = Number(item.quantity) || 0;
+
+            const matchedMenu = menus.find(m => isMenuMatchLocal(m.name, m.id, name, menuItemId || ''));
+            if (matchedMenu) {
+              orderedQuantitiesLocal[matchedMenu.id] = (orderedQuantitiesLocal[matchedMenu.id] || 0) + qty;
+            }
+          }
+        }
+      }
+
+      for (const menu of menus) {
+        const totalOrdered = orderedQuantitiesLocal[menu.id] || 0;
+        const startingStock = 20;
+        const newStock = Math.max(0, startingStock - totalOrdered);
+        const available = newStock > 0;
+
         const idx = localMenus.findIndex((m: any) => m.id === menu.id);
         if (idx >= 0) {
           localMenus[idx].stock = newStock;
@@ -1096,9 +1213,9 @@ export const dbService = {
       if (localMenus.length > 0) {
         localStorage.setItem('df_menus', JSON.stringify(localMenus));
       }
-      console.log("Stock levels successfully reconciled and synchronized with order history!");
+      console.log("Local stock levels successfully reconciled and synchronized with local order history!");
     } catch (err) {
       console.error("Error running reconcileStockWithOrders:", err);
     }
-  }
+  },
 };
