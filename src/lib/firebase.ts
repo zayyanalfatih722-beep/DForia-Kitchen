@@ -558,7 +558,8 @@ export const dbService = {
     if (db) {
       try {
         const orderRef = doc(db, 'orders', order.id);
-        await setDoc(orderRef, orderWithFlag);
+        const sanitized = JSON.parse(JSON.stringify(orderWithFlag));
+        await setDoc(orderRef, sanitized);
         console.log("Order saved to Firestore successfully without decrementing stock (will decrement on WhatsApp click)");
         return;
       } catch (err) {
