@@ -73,6 +73,15 @@ export default function AdminDashboard() {
   const [syncSuccess, setSyncSuccess] = useState(false);
   const [syncInfo, setSyncInfo] = useState<{ menusUploaded: number } | null>(null);
 
+  const loadAllData = async () => {
+    try {
+      const fetchedSettings = await dbService.getSettings();
+      setSettings(fetchedSettings);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleCloudSync = async () => {
     setSyncing(true);
     setSyncSuccess(false);
@@ -102,54 +111,61 @@ export default function AdminDashboard() {
     lowStockCount: 0
   });
 
-  // Initial Load
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      const fetchedMenus = await dbService.getMenus();
-      const fetchedOrders = await dbService.getOrders();
-      const fetchedSettings = await dbService.getSettings();
-
-      setMenus(fetchedMenus);
-      setOrders(fetchedOrders);
-      setSettings(fetchedSettings);
-
-      // Compute statistics
-      const totalRevenue = fetchedOrders
-        .filter(o => o.status === 'Selesai')
-        .reduce((sum, o) => sum + o.totalAmount, 0);
-      
-      const newOrders = fetchedOrders.filter(o => o.status === 'Pending').length;
-
-      const outOfStockCount = fetchedMenus.filter(m => (m.stock !== undefined ? m.stock : 20) <= 0).length;
-      const lowStockCount = fetchedMenus.filter(m => {
-        const stk = m.stock !== undefined ? m.stock : 20;
-        return stk > 0 && stk <= 5;
-      }).length;
-
-      setStats({
-        totalRevenue,
-        newOrdersCount: newOrders,
-        totalMenuCount: fetchedMenus.length,
-        totalOrdersCount: fetchedOrders.length,
-        outOfStockCount,
-        lowStockCount
-      });
-
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     // Check if user is authenticated
     if (!dbService.isAdminLoggedIn()) {
       navigate('/admin/login');
       return;
     }
-    loadAllData();
+
+    // Load static settings
+    dbService.getSettings().then(setSettings).catch(console.error);
+
+    setLoading(true);
+
+    // Subscribe to Menus
+    const unsubscribeMenus = dbService.subscribeMenus((fetchedMenus) => {
+      setMenus(fetchedMenus);
+      setStats(prev => {
+        const outOfStockCount = fetchedMenus.filter(m => (m.stock !== undefined ? m.stock : 20) <= 0).length;
+        const lowStockCount = fetchedMenus.filter(m => {
+          const stk = m.stock !== undefined ? m.stock : 20;
+          return stk > 0 && stk <= 5;
+        }).length;
+
+        return {
+          ...prev,
+          totalMenuCount: fetchedMenus.length,
+          outOfStockCount,
+          lowStockCount
+        };
+      });
+      setLoading(false);
+    });
+
+    // Subscribe to Orders
+    const unsubscribeOrders = dbService.subscribeOrders((fetchedOrders) => {
+      setOrders(fetchedOrders);
+      setStats(prev => {
+        const totalRevenue = fetchedOrders
+          .filter(o => o.status === 'Selesai')
+          .reduce((sum, o) => sum + o.totalAmount, 0);
+        
+        const newOrders = fetchedOrders.filter(o => o.status === 'Pending').length;
+
+        return {
+          ...prev,
+          totalRevenue,
+          newOrdersCount: newOrders,
+          totalOrdersCount: fetchedOrders.length
+        };
+      });
+    });
+
+    return () => {
+      unsubscribeMenus();
+      unsubscribeOrders();
+    };
   }, [navigate]);
 
   const handleLogout = async () => {

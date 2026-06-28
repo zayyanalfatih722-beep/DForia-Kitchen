@@ -74,6 +74,13 @@ function AppContent() {
     return () => unsubscribe();
   }, []);
 
+  // Trigger automatic stock level reconciliation with the order history on startup
+  useEffect(() => {
+    dbService.reconcileStockWithOrders().catch((err) => {
+      console.error("Failed to run startup stock level reconciliation:", err);
+    });
+  }, []);
+
   const handleAddCart = (item: MenuItem) => {
     setCart((prev) => {
       const existingIdx = prev.findIndex((i) => i.menuItem.id === item.id);

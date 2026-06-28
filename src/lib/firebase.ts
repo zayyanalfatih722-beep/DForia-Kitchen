@@ -18,7 +18,8 @@ import {
   query,
   where,
   orderBy,
-  onSnapshot
+  onSnapshot,
+  runTransaction
 } from 'firebase/firestore';
 import { MenuItem, Order, Banner, StoreSettings, Coupon, OrderStatus, Testimonial } from '../types';
 
@@ -508,26 +509,106 @@ export const dbService = {
     return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
+  subscribeOrders(onUpdate: (orders: Order[]) => void): () => void {
+    if (db) {
+      try {
+        const q = collection(db, 'orders');
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const orders: Order[] = [];
+          querySnapshot.forEach((doc) => {
+            orders.push({ id: doc.id, ...doc.data() } as Order);
+          });
+          // Sort descending by createdAt
+          orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          onUpdate(orders);
+        }, (err) => {
+          console.error("onSnapshot error for orders:", err);
+        });
+        return unsubscribe;
+      } catch (err) {
+        console.error("Error setting up onSnapshot for orders:", err);
+      }
+    }
+
+    const getLocal = () => {
+      const localRaw = localStorage.getItem('df_orders');
+      const orders = localRaw ? (JSON.parse(localRaw) as Order[]) : [];
+      return orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    };
+    onUpdate(getLocal());
+    const interval = setInterval(() => {
+      onUpdate(getLocal());
+    }, 3000);
+    return () => clearInterval(interval);
+  },
+
   async addOrder(order: Order): Promise<void> {
     if (db) {
       try {
-        await setDoc(doc(db, 'orders', order.id), order);
-        console.log("Order saved to Firestore");
-
-        // Deduct stock for each item in the order in Firestore
+        // Pre-flight to resolve exact Document IDs for all items in the order
+        const resolvedItems: { ref: any; quantity: number; name: string }[] = [];
         for (const item of order.items) {
-          const menuDocRef = doc(db, 'menu', item.menuItemId);
-          const menuSnap = await getDoc(menuDocRef);
-          if (menuSnap.exists()) {
-            const data = menuSnap.data();
-            const currentStock = data.stock !== undefined ? data.stock : 20;
-            const newStock = Math.max(0, currentStock - item.quantity);
-            await updateDoc(menuDocRef, { stock: newStock });
-            console.log(`Deducted stock for ${item.name} from ${currentStock} to ${newStock} in Firestore`);
+          if (!item.menuItemId) continue;
+          let menuDocRef = doc(db, 'menu', item.menuItemId);
+          let menuSnap = await getDoc(menuDocRef);
+
+          // Fallback search by name if ID is mismatched or not found in Firestore
+          if (!menuSnap.exists()) {
+            console.log(`Pre-flight: ID ${item.menuItemId} not found. Searching by name "${item.name}"...`);
+            const q = query(collection(db, 'menu'), where('name', '==', item.name));
+            const querySnap = await getDocs(q);
+            if (!querySnap.empty) {
+              const matchedDoc = querySnap.docs[0];
+              menuDocRef = doc(db, 'menu', matchedDoc.id);
+              console.log(`Pre-flight: Resolved name "${item.name}" to Firestore ID ${matchedDoc.id}`);
+            } else {
+              console.warn(`Pre-flight: Menu item "${item.name}" not found in Firestore. Skipping.`);
+              continue;
+            }
           }
+          resolvedItems.push({
+            ref: menuDocRef,
+            quantity: item.quantity,
+            name: item.name
+          });
         }
+
+        // Run transaction to atomically write order and decrement menu stock levels
+        await runTransaction(db, async (transaction) => {
+          // 1. Perform all reads first (required by Firestore transactions)
+          const readSnapshots: { resolved: any; data: any }[] = [];
+          for (const resolved of resolvedItems) {
+            const snap = await transaction.get(resolved.ref);
+            if (snap.exists()) {
+              readSnapshots.push({
+                resolved,
+                data: snap.data()
+              });
+            }
+          }
+
+          // 2. Perform all writes
+          // Save the order document
+          const orderRef = doc(db, 'orders', order.id);
+          transaction.set(orderRef, order);
+
+          // Update each resolved menu item's stock level atomically
+          for (const entry of readSnapshots) {
+            const currentStock = entry.data.stock !== undefined ? Number(entry.data.stock) : 20;
+            const newStock = Math.max(0, currentStock - entry.resolved.quantity);
+            
+            const updates: any = { stock: newStock };
+            if (newStock <= 0) {
+              updates.available = false;
+            }
+            transaction.update(entry.resolved.ref, updates);
+            console.log(`Transaction: Atomically decremented ${entry.resolved.name} stock from ${currentStock} to ${newStock}`);
+          }
+        });
+
+        console.log("Order saved and stock levels decremented atomically via Firestore transaction successfully!");
       } catch (err) {
-        console.error("Firestore error adding order or deducting stock:", err);
+        console.error("Firestore transaction error adding order or decrementing stock:", err);
       }
     }
 
@@ -540,10 +621,14 @@ export const dbService = {
       const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
       let updatedAny = false;
       for (const item of order.items) {
-        const idx = localMenus.findIndex((m: any) => m.id === item.menuItemId);
+        const idx = localMenus.findIndex((m: any) => m.id === item.menuItemId || m.name === item.name);
         if (idx >= 0) {
-          const currentStock = localMenus[idx].stock !== undefined ? localMenus[idx].stock : 20;
-          localMenus[idx].stock = Math.max(0, currentStock - item.quantity);
+          const currentStock = localMenus[idx].stock !== undefined ? Number(localMenus[idx].stock) : 20;
+          const newStock = Math.max(0, currentStock - item.quantity);
+          localMenus[idx].stock = newStock;
+          if (newStock <= 0) {
+            localMenus[idx].available = false;
+          }
           updatedAny = true;
         }
       }
@@ -899,6 +984,17 @@ export const dbService = {
           }
         }
 
+        // 5. Sync Orders to Firestore to ensure order histories are fully merged
+        const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
+        if (localOrders.length > 0) {
+          for (const order of localOrders) {
+            await setDoc(doc(db, 'orders', order.id), order);
+          }
+        }
+
+        // 6. Run automatic stock levels reconciliation to align Firestore with complete order history
+        await this.reconcileStockWithOrders();
+
         return { success: true, menusUploaded, settingsUploaded };
       } catch (err) {
         console.error("Error during cloud sync:", err);
@@ -906,5 +1002,103 @@ export const dbService = {
       }
     }
     return { success: false, menusUploaded: 0, settingsUploaded: false };
+  },
+
+  async reconcileStockWithOrders(): Promise<void> {
+    try {
+      console.log("Starting stock level reconciliation...");
+      let menus: MenuItem[] = [];
+      let orders: Order[] = [];
+
+      if (db) {
+        try {
+          // Fetch menus and orders from Firestore
+          const menuSnap = await getDocs(collection(db, 'menu'));
+          menuSnap.forEach(docSnap => {
+            menus.push({ id: docSnap.id, ...docSnap.data() } as MenuItem);
+          });
+
+          const orderSnap = await getDocs(collection(db, 'orders'));
+          orderSnap.forEach(docSnap => {
+            orders.push({ id: docSnap.id, ...docSnap.data() } as Order);
+          });
+        } catch (dbErr) {
+          console.error("Firestore error in reconciliation:", dbErr);
+        }
+      }
+
+      // Fallback or merge with local storage
+      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
+      const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
+
+      // If menus list is empty (e.g., in local mode), use local menus or default menus
+      if (menus.length === 0) {
+        menus = localMenus.length > 0 ? localMenus : DEFAULT_MENUS;
+      }
+      // Combine orders to make sure we don't miss any local tests or synced ones
+      const allOrdersMap = new Map<string, Order>();
+      orders.forEach(o => allOrdersMap.set(o.id, o));
+      localOrders.forEach((o: Order) => allOrdersMap.set(o.id, o));
+      const allOrders = Array.from(allOrdersMap.values());
+
+      // Calculate total ordered quantities per menu item (match by ID or Name)
+      const orderedQuantities: { [key: string]: number } = {};
+      for (const order of allOrders) {
+        if (order.items && Array.isArray(order.items)) {
+          for (const item of order.items) {
+            const menuItemId = item.menuItemId;
+            const name = item.name;
+            const qty = Number(item.quantity) || 0;
+
+            const matchedMenu = menus.find(m => m.id === menuItemId || m.name === name);
+            if (matchedMenu) {
+              orderedQuantities[matchedMenu.id] = (orderedQuantities[matchedMenu.id] || 0) + qty;
+            }
+          }
+        }
+      }
+
+      console.log("Reconciliation ordered quantities map:", orderedQuantities);
+
+      // Update Firestore and LocalStorage
+      for (const menu of menus) {
+        const totalOrdered = orderedQuantities[menu.id] || 0;
+        const startingStock = 20; // Default starting stock as explicitly stated by user
+        const newStock = Math.max(0, startingStock - totalOrdered);
+        const available = newStock > 0;
+
+        // 1. Update Firestore if connected
+        if (db) {
+          try {
+            const menuRef = doc(db, 'menu', menu.id);
+            await updateDoc(menuRef, {
+              stock: newStock,
+              available: available,
+              isAvailable: menu.isAvailable !== undefined ? (newStock > 0 ? menu.isAvailable : false) : available
+            });
+            console.log(`Firestore: Synchronized ${menu.name} stock to ${newStock} (${totalOrdered} ordered)`);
+          } catch (fsErr) {
+            console.warn(`Failed to update Firestore stock for ${menu.name}:`, fsErr);
+          }
+        }
+
+        // 2. Update LocalStorage copy
+        const idx = localMenus.findIndex((m: any) => m.id === menu.id);
+        if (idx >= 0) {
+          localMenus[idx].stock = newStock;
+          localMenus[idx].available = available;
+          if (newStock <= 0) {
+            localMenus[idx].isAvailable = false;
+          }
+        }
+      }
+
+      if (localMenus.length > 0) {
+        localStorage.setItem('df_menus', JSON.stringify(localMenus));
+      }
+      console.log("Stock levels successfully reconciled and synchronized with order history!");
+    } catch (err) {
+      console.error("Error running reconcileStockWithOrders:", err);
+    }
   }
 };

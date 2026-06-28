@@ -24,19 +24,13 @@ export default function AdminOrders() {
   // Search orders
   const [orderQuery, setOrderQuery] = useState('');
 
-  // Initial Load
+  // Initial Load (Settings are fetched statically, orders are updated in real-time)
   const loadAllData = async () => {
-    setLoading(true);
     try {
-      const fetchedOrders = await dbService.getOrders();
       const fetchedSettings = await dbService.getSettings();
-
-      setOrders(fetchedOrders);
       setSettings(fetchedSettings);
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -46,7 +40,16 @@ export default function AdminOrders() {
       navigate('/admin/login');
       return;
     }
+    
     loadAllData();
+    setLoading(true);
+
+    const unsubscribe = dbService.subscribeOrders((fetchedOrders) => {
+      setOrders(fetchedOrders);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [navigate]);
 
   const formatPrice = (value: number) => {

@@ -44,19 +44,13 @@ export default function AdminMenu() {
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // Initial Load
+  // Initial Load (Settings are fetched statically, menus are updated in real-time)
   const loadAllData = async () => {
-    setLoading(true);
     try {
-      const fetchedMenus = await dbService.getMenus();
       const fetchedSettings = await dbService.getSettings();
-
-      setMenus(fetchedMenus);
       setSettings(fetchedSettings);
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -66,7 +60,16 @@ export default function AdminMenu() {
       navigate('/admin/login');
       return;
     }
+    
     loadAllData();
+    setLoading(true);
+
+    const unsubscribe = dbService.subscribeMenus((fetchedMenus) => {
+      setMenus(fetchedMenus);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [navigate]);
 
   const formatPrice = (value: number) => {
