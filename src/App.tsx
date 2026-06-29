@@ -25,10 +25,20 @@ import Testimonials from './pages/Testimonials';
 import AdminTestimonials from './pages/AdminTestimonials';
 import BottomNav from './components/BottomNav';
 import WhatsAppButton from './components/WhatsAppButton';
+import { InstallPromptBar } from './components/InstallPrompt';
 
 // Main layout wrapper to dynamically toggle BottomNav and WhatsApp contact helper
 function AppContent() {
   const location = useLocation();
+
+  // Initialize unique customer ID automatically on first visit
+  useEffect(() => {
+    let customerId = localStorage.getItem('df_customer_id');
+    if (!customerId) {
+      customerId = 'cust_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('df_customer_id', customerId);
+    }
+  }, []);
 
   // Load cart from localStorage or start empty
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -152,7 +162,6 @@ function AppContent() {
           }
         />
         <Route path="/orders" element={<OrderHistory />} />
-        <Route path="/testimoni" element={<Testimonials />} />
 
         {/* Admin Control Routes */}
         <Route path="/admin" element={<Navigate to="/admin/login" />} />
@@ -175,6 +184,7 @@ function AppContent() {
       {isClientSide && (
         <>
           <BottomNav cart={cart} />
+          <InstallPromptBar />
           {settings && (
             <WhatsAppButton
               phoneNumber={settings.whatsapp || '628123456789'}

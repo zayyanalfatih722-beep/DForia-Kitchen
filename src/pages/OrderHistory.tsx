@@ -12,40 +12,26 @@ export default function OrderHistory() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserOrders = async () => {
-    setLoading(true);
-    try {
-      // Get all orders from DB
-      const allOrders = await dbService.getOrders();
-      // Filter orders placed in this browser session/device
-      const userOrderIds: string[] = JSON.parse(localStorage.getItem('df_user_order_ids') || '[]');
-
-      // If user placed orders, filter to show theirs.
-      // If user hasn't placed any order yet, let's show all orders for the beginner's review & testing convenience!
-      // This is extremely helpful because otherwise the page would be completely blank when they first open the preview.
-      if (userOrderIds.length > 0) {
-        const filtered = allOrders.filter(o => userOrderIds.includes(o.id));
-        setOrders(filtered);
-      } else {
-        // Fallback: show all orders (e.g. the seeded ORD-916226)
-        setOrders(allOrders);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  const getOrCreateCustomerId = () => {
+    let customerId = localStorage.getItem('df_customer_id');
+    if (!customerId) {
+      customerId = 'cust_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('df_customer_id', customerId);
     }
+    return customerId;
   };
 
   useEffect(() => {
-    fetchUserOrders();
+    setLoading(true);
+    const customerId = getOrCreateCustomerId();
 
-    // Set up a refresh timer to simulate real-time updates every 10 seconds!
-    const interval = setInterval(() => {
-      fetchUserOrders();
-    }, 10000);
+    // Subscribe to orders for this specific customer in real-time
+    const unsubscribe = dbService.subscribeCustomerOrders(customerId, (fetchedOrders) => {
+      setOrders(fetchedOrders);
+      setLoading(false);
+    });
 
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, []);
 
   const formatPrice = (value: number) => {
@@ -58,13 +44,19 @@ export default function OrderHistory() {
   };
 
   const getStatusStyle = (status: OrderStatus) => {
-    if (status === 'Diproses') {
+    if (status === 'Sedang Diproses') {
       return 'bg-blue-50 text-blue-600 border border-blue-200';
+    }
+    if (status === 'Sedang Diantar / Siap Diambil') {
+      return 'bg-purple-50 text-purple-600 border border-purple-200';
     }
     if (status === 'Selesai') {
       return 'bg-green-50 text-green-600 border border-green-200';
     }
-    return 'bg-amber-50 text-amber-600 border border-amber-200'; // Menunggu / Pending
+    if (status === 'Dibatalkan') {
+      return 'bg-red-50 text-red-600 border border-red-200';
+    }
+    return 'bg-amber-50 text-amber-600 border border-amber-200'; // Menunggu Konfirmasi
   };
 
   return (
@@ -74,13 +66,6 @@ export default function OrderHistory() {
           <span className="text-[10px] uppercase tracking-widest text-primary font-bold">Riwayat Pesanan</span>
           <h1 className="font-serif text-2xl font-bold text-gray-800">Status Pesanan</h1>
         </div>
-        <button
-          onClick={fetchUserOrders}
-          className="bg-white p-2 rounded-full border border-cream-dark/40 shadow-soft text-gray-500 hover:text-primary transition-all duration-300 cursor-pointer"
-          title="Refresh live status"
-        >
-          <RotateCcw size={15} />
-        </button>
       </div>
 
       {loading ? (
@@ -101,7 +86,7 @@ export default function OrderHistory() {
       ) : (
         <div className="space-y-4">
           <p className="text-[10px] text-gray-400 bg-white p-2.5 rounded-xl border border-cream-dark/30 shadow-soft text-center italic">
-            ● Status pesanan di bawah otomatis diperbarui setiap 10 detik.
+            ● Status pesanan di bawah otomatis diperbarui secara real-time.
           </p>
           {orders.map((order) => (
             <div
@@ -116,7 +101,7 @@ export default function OrderHistory() {
                   <p className="font-mono text-xs font-bold text-gray-700">{order.id}</p>
                 </div>
                 <span className={`text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wider ${getStatusStyle(order.status)}`}>
-                  {order.status === 'Pending' ? 'Menunggu' : order.status}
+                  {order.status}
                 </span>
               </div>
 

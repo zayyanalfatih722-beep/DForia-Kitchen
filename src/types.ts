@@ -30,11 +30,12 @@ export interface CartItem {
   notes: string;
 }
 
-export type OrderStatus = 'Pending' | 'Diproses' | 'Selesai';
+export type OrderStatus = 'Menunggu Konfirmasi' | 'Sedang Diproses' | 'Sedang Diantar / Siap Diambil' | 'Selesai' | 'Dibatalkan';
 export type PaymentMethod = 'Cash' | 'QRIS' | 'COD' | 'Transfer Bank';
 
 export interface Order {
   id: string;
+  customerId?: string;
   customerName: string;
   tableNumber: string;
   phoneNumber?: string; // Nomor WhatsApp Pelanggan

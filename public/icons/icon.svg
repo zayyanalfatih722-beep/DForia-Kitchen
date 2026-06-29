@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE881" />
+      <stop offset="50%" stop-color="#C5A029" />
+      <stop offset="100%" stop-color="#937207" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="#7B1E3A" />
+  <!-- Elegant Border -->
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="none" stroke="url(#gold)" stroke-width="6" opacity="0.8" />
+  <rect x="36" y="36" width="440" height="440" rx="92" fill="none" stroke="url(#gold)" stroke-width="2" opacity="0.4" />
+  <!-- Monogram Logo -->
+  <g transform="translate(136, 120)">
+    <!-- Stylized Letter D -->
+    <path d="M 40 40 L 130 40 C 190 40, 210 100, 210 136 C 210 172, 190 232, 130 232 L 40 232 Z" fill="none" stroke="url(#gold)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 40 40 L 40 232" fill="none" stroke="url(#gold)" stroke-width="28" stroke-linecap="round" />
+    <!-- Stylized Letter F inside D -->
+    <path d="M 100 80 L 160 80" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+    <path d="M 100 136 L 145 136" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+    <path d="M 100 80 L 100 190" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+  </g>
+  <!-- Tiny subtle star -->
+  <path d="M 256 90 L 260 100 L 270 100 L 262 106 L 265 116 L 256 110 L 247 116 L 250 106 L 242 100 L 252 100 Z" fill="url(#gold)" />
+</svg>

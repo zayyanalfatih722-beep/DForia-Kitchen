@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE881" />
+      <stop offset="50%" stop-color="#C5A029" />
+      <stop offset="100%" stop-color="#937207" />
+    </linearGradient>
+  </defs>
+  <!-- Background covering full 100% -->
+  <rect width="512" height="512" fill="#7B1E3A" />
+  <!-- Logo inside 60% safe area to prevent cropping issues -->
+  <g transform="translate(156, 140) scale(0.8)">
+    <!-- Elegant Border -->
+    <rect x="-24" y="-24" width="312" height="312" rx="60" fill="none" stroke="url(#gold)" stroke-width="8" opacity="0.8" />
+    <!-- Stylized Letter D -->
+    <path d="M 40 40 L 130 40 C 190 40, 210 100, 210 136 C 210 172, 190 232, 130 232 L 40 232 Z" fill="none" stroke="url(#gold)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 40 40 L 40 232" fill="none" stroke="url(#gold)" stroke-width="28" stroke-linecap="round" />
+    <!-- Stylized Letter F inside D -->
+    <path d="M 100 80 L 160 80" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+    <path d="M 100 136 L 145 136" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+    <path d="M 100 80 L 100 190" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" />
+  </g>
+</svg>

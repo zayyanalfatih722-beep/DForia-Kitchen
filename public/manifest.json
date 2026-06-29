@@ -1,0 +1,27 @@
+{
+  "name": "D'Foria Kitchen",
+  "short_name": "D'Foria",
+  "description": "Premium Indonesian and Italian culinary delights from D'Foria Kitchen.",
+  "id": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F1E8",
+  "theme_color": "#7B1E3A",
+  "orientation": "portrait",
+  "scope": "/",
+  "categories": ["food", "shopping"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

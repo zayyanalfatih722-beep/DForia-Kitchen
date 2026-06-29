@@ -151,7 +151,7 @@ export default function AdminDashboard() {
           .filter(o => o.status === 'Selesai')
           .reduce((sum, o) => sum + o.totalAmount, 0);
         
-        const newOrders = fetchedOrders.filter(o => o.status === 'Pending').length;
+        const newOrders = fetchedOrders.filter(o => o.status === 'Menunggu Konfirmasi').length;
 
         return {
           ...prev,
@@ -443,10 +443,12 @@ export default function AdminDashboard() {
                         <td className="py-4 px-6">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             o.status === 'Selesai' ? 'bg-green-50 text-green-600 border border-green-200' :
-                            o.status === 'Diproses' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                            o.status === 'Sedang Diproses' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                            o.status === 'Sedang Diantar / Siap Diambil' ? 'bg-purple-50 text-purple-600 border border-purple-200' :
+                            o.status === 'Dibatalkan' ? 'bg-red-50 text-red-600 border border-red-200' :
                             'bg-amber-50 text-amber-600 border border-amber-200'
                           }`}>
-                            {o.status === 'Pending' ? 'Menunggu' : o.status}
+                            {o.status}
                           </span>
                         </td>
                       </tr>

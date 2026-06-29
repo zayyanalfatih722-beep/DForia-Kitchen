@@ -131,12 +131,26 @@ export default function AdminOrders() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cream/35 text-xs text-gray-600">
-                    {filteredOrders.map((o) => (
-                      <tr key={o.id} className="hover:bg-cream/15 transition-colors align-top">
-                        <td className="py-4.5 px-6 font-mono font-bold text-gray-800">{o.id}</td>
-                        <td className="py-4.5 px-6">
-                          <p className="font-bold text-gray-800">{o.customerName}</p>
-                          <p className="text-[10px] text-primary font-semibold mt-0.5">Meja {o.tableNumber}</p>
+                    {filteredOrders.map((o) => {
+                      const isNew = o.status === 'Menunggu Konfirmasi';
+                      return (
+                        <tr 
+                          key={o.id} 
+                          className={`hover:bg-cream/15 transition-all duration-500 align-top ${
+                            isNew ? 'bg-amber-50/60 border-l-4 border-l-[#7B1E3A] animate-pulse' : ''
+                          }`}
+                        >
+                          <td className="py-4.5 px-6 font-mono font-bold text-gray-800">{o.id}</td>
+                          <td className="py-4.5 px-6">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-bold text-gray-800">{o.customerName}</p>
+                              {isNew && (
+                                <span className="bg-[#7B1E3A] text-white text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase animate-bounce shadow-soft shrink-0">
+                                  BARU
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-primary font-semibold mt-0.5">Meja {o.tableNumber}</p>
                           <p className="text-[10px] text-gray-400 font-medium mt-1">
                             {new Date(o.createdAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'})} WIB
                           </p>
@@ -163,34 +177,35 @@ export default function AdminOrders() {
                         </td>
                         <td className="py-4.5 px-6 font-mono font-bold text-gray-800">{formatPrice(o.totalAmount)}</td>
                         <td className="py-4.5 px-6">
-                          <div className="flex flex-col space-y-1.5">
+                          <div className="flex flex-col space-y-1.5 min-w-[140px]">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-center ${
                               o.status === 'Selesai' ? 'bg-green-50 text-green-600 border border-green-200' :
-                              o.status === 'Diproses' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                              o.status === 'Sedang Diproses' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                              o.status === 'Sedang Diantar / Siap Diambil' ? 'bg-purple-50 text-purple-600 border border-purple-200' :
+                              o.status === 'Dibatalkan' ? 'bg-red-50 text-red-600 border border-red-200' :
                               'bg-amber-50 text-amber-600 border border-amber-200'
                             }`}>
-                              {o.status === 'Pending' ? 'Menunggu' : o.status}
+                              {o.status}
                             </span>
-                            <div className="flex space-x-1">
-                              <button
-                                id={`btn-process-order-${o.id}`}
-                                onClick={() => handleUpdateOrderStatus(o.id, 'Diproses')}
-                                className="flex-1 py-1 px-2 rounded bg-blue-500 hover:bg-blue-600 text-white font-bold text-[10px] tracking-wider transition-colors cursor-pointer"
+                            <div className="flex flex-col space-y-1">
+                              <label htmlFor={`select-status-order-${o.id}`} className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Ubah Status:</label>
+                              <select
+                                id={`select-status-order-${o.id}`}
+                                value={o.status}
+                                onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value as OrderStatus)}
+                                className="w-full bg-cream hover:bg-cream-dark/20 text-gray-700 text-[10px] font-bold py-1 px-1.5 rounded border border-cream-dark/50 focus:outline-none focus:ring-1 focus:ring-[#7B1E3A] cursor-pointer"
                               >
-                                PROSES
-                              </button>
-                              <button
-                                id={`btn-complete-order-${o.id}`}
-                                onClick={() => handleUpdateOrderStatus(o.id, 'Selesai')}
-                                className="flex-1 py-1 px-2 rounded bg-green-500 hover:bg-green-600 text-white font-bold text-[10px] tracking-wider transition-colors cursor-pointer"
-                              >
-                                SELESAI
-                              </button>
+                                <option value="Menunggu Konfirmasi">Menunggu Konfirmasi</option>
+                                <option value="Sedang Diproses">Sedang Diproses</option>
+                                <option value="Sedang Diantar / Siap Diambil">Sedang Diantar / Siap Diambil</option>
+                                <option value="Selesai">Selesai</option>
+                                <option value="Dibatalkan">Dibatalkan</option>
+                              </select>
                             </div>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                     {filteredOrders.length === 0 && (
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-gray-400 font-serif italic">Belum ada pesanan yang sesuai pencarian.</td>

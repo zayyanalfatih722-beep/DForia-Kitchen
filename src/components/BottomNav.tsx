@@ -48,11 +48,6 @@ export default function BottomNav({ cart }: BottomNavProps) {
       path: '/orders'
     },
     {
-      label: 'Testimoni',
-      icon: MessageSquare,
-      path: '/testimoni'
-    },
-    {
       label: 'Admin',
       icon: Settings,
       path: '/admin/dashboard'

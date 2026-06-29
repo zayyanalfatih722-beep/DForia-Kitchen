@@ -20,6 +20,7 @@ import { dbService } from '../lib/firebase';
 import { Banner, StoreSettings, MenuItem } from '../types';
 import HeroSlider from '../components/HeroSlider';
 import PremiumInfoBar from '../components/PremiumInfoBar';
+import { InstallAppButton } from '../components/InstallPrompt';
 
 interface HomeProps {
   onAddCart: (item: MenuItem) => void;
@@ -165,6 +166,9 @@ export default function Home({ onAddCart }: HomeProps) {
         </div>
       </div>
 
+      {/* PWA Install Promo Button */}
+      <InstallAppButton />
+
       {/* 4. Keunggulan Kami (Introduction to Restaurant Atmosphere) */}
       <div className="space-y-4 animate-slide-up">
         <div className="flex items-center space-x-2">
@@ -220,24 +224,16 @@ export default function Home({ onAddCart }: HomeProps) {
             </p>
           </div>
 
-          <div className="flex justify-center gap-2 pt-1">
+          <div className="flex justify-center pt-1">
             <a 
               href={settings?.mapsUrl || "https://www.google.com/maps/search/?api=1&query=Pulau+Weh+Kota+Sabang+Aceh"}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center space-x-1.5 bg-primary hover:bg-primary-dark text-white font-bold text-[10px] uppercase tracking-wider py-2 px-4 rounded-xl shadow-soft transition-all duration-300 hover:scale-[1.03] active:scale-[0.97]"
+              className="w-full max-w-[200px] inline-flex items-center justify-center space-x-1.5 bg-primary hover:bg-primary-dark text-white font-bold text-[10px] uppercase tracking-wider py-2.5 px-4 rounded-xl shadow-soft transition-all duration-300 hover:scale-[1.03] active:scale-[0.97]"
             >
               <MapPinned size={11} className="text-[#D4AF37]" />
               <span>Lihat di Maps</span>
             </a>
-
-            <button
-              onClick={() => navigate('/testimoni')}
-              className="inline-flex items-center space-x-1.5 bg-white hover:bg-cream-light/60 text-primary border border-primary/40 hover:border-primary font-bold text-[10px] uppercase tracking-wider py-2 px-4 rounded-xl shadow-soft transition-all duration-300 hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
-            >
-              <span className="text-[#D4AF37]">❤️</span>
-              <span>Testimoni</span>
-            </button>
           </div>
 
           <div className="pt-2.5 border-t border-cream-dark/30 text-[9px] flex items-center justify-center space-x-2 font-mono text-gray-400">

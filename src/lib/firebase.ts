@@ -207,7 +207,7 @@ const DEFAULT_ORDERS: Order[] = [
     ],
     totalAmount: 20000,
     paymentMethod: 'QRIS',
-    status: 'Pending',
+    status: 'Menunggu Konfirmasi',
     createdAt: new Date(Date.now() - 3600000).toISOString() // 1 jam lalu
   }
 ];
@@ -545,6 +545,60 @@ export const dbService = {
       const localRaw = localStorage.getItem('df_orders');
       const orders = localRaw ? (JSON.parse(localRaw) as Order[]) : [];
       return orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    };
+    onUpdate(getLocal());
+    const interval = setInterval(() => {
+      onUpdate(getLocal());
+    }, 3000);
+    return () => clearInterval(interval);
+  },
+
+  async getCustomerOrders(customerId: string): Promise<Order[]> {
+    if (db) {
+      try {
+        const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
+        const querySnapshot = await getDocs(q);
+        const orders: Order[] = [];
+        querySnapshot.forEach((doc) => {
+          orders.push({ id: doc.id, ...doc.data() } as Order);
+        });
+        return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } catch (err) {
+        console.error("Firestore error reading customer orders:", err);
+        throw err;
+      }
+    }
+    const orders = JSON.parse(localStorage.getItem('df_orders') || '[]');
+    const filtered = orders.filter((o: any) => o.customerId === customerId);
+    return filtered.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  subscribeCustomerOrders(customerId: string, onUpdate: (orders: Order[]) => void): () => void {
+    if (db) {
+      try {
+        const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+          const orders: Order[] = [];
+          querySnapshot.forEach((doc) => {
+            orders.push({ id: doc.id, ...doc.data() } as Order);
+          });
+          // Sort descending by createdAt
+          orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          onUpdate(orders);
+        }, (err) => {
+          console.error("onSnapshot error for customer orders:", err);
+        });
+        return unsubscribe;
+      } catch (err) {
+        console.error("Error setting up onSnapshot for customer orders:", err);
+      }
+    }
+
+    const getLocal = () => {
+      const localRaw = localStorage.getItem('df_orders');
+      const orders = localRaw ? (JSON.parse(localRaw) as Order[]) : [];
+      const filtered = orders.filter((o: any) => o.customerId === customerId);
+      return filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     };
     onUpdate(getLocal());
     const interval = setInterval(() => {

@@ -23,6 +23,14 @@ export default function AdminLogin() {
     try {
       const success = await dbService.loginAdmin(username, password);
       if (success) {
+        // Request notification permission from admin on successful login
+        if ('Notification' in window && Notification.permission === 'default') {
+          try {
+            await Notification.requestPermission();
+          } catch (err) {
+            console.warn("Failed to request notification permission:", err);
+          }
+        }
         navigate('/admin/dashboard');
       } else {
         setError('Username atau password yang Anda masukkan salah.');

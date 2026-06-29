@@ -33,13 +33,6 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
   const [successOrder, setSuccessOrder] = useState<Order | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Testimonial States
-  const [showTestimonialModal, setShowTestimonialModal] = useState(false);
-  const [testiName, setTestiName] = useState('');
-  const [testiMessage, setTestiMessage] = useState('');
-  const [testiSubmitting, setTestiSubmitting] = useState(false);
-  const [testiSuccess, setTestiSuccess] = useState(false);
-
   useEffect(() => {
     async function loadSettings() {
       try {
@@ -84,9 +77,11 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
 
     setLoading(true);
 
+    const customerId = localStorage.getItem('df_customer_id') || 'cust_' + Math.random().toString(36).substring(2, 15);
     const orderId = 'ORD-' + Math.floor(100000 + Math.random() * 900000);
     const newOrder: Order = {
       id: orderId,
+      customerId,
       customerName,
       tableNumber: phoneNumber, // map tableNumber to phone for compatibility with standard layouts
       phoneNumber: phoneNumber,
@@ -101,7 +96,7 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
       })),
       totalAmount: grandTotal,
       paymentMethod,
-      status: 'Pending',
+      status: 'Menunggu Konfirmasi',
       createdAt: new Date().toISOString()
     };
 
@@ -114,8 +109,6 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
       localStorage.setItem('df_user_order_ids', JSON.stringify(userOrderIds));
 
       setSuccessOrder(newOrder);
-      setTestiName(customerName);
-      setShowTestimonialModal(true);
       onClearCart();
     } catch (err) {
       console.error("Error creating order:", err);
@@ -159,27 +152,6 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
     );
     
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleTestimonialSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!testiName.trim() || !testiMessage.trim()) {
-      return;
-    }
-    setTestiSubmitting(true);
-    try {
-      await dbService.saveTestimonial(testiName.trim(), testiMessage.trim());
-      setTestiSuccess(true);
-      setTimeout(() => {
-        setShowTestimonialModal(false);
-        setTestiMessage('');
-        setTestiSuccess(false);
-      }, 2500);
-    } catch (err) {
-      console.error("Gagal menyimpan testimoni:", err);
-    } finally {
-      setTestiSubmitting(false);
-    }
   };
 
   // If order was successful, show Confirmation View
@@ -389,104 +361,6 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
             </button>
           </div>
         </motion.div>
-
-        {/* Testimonial Popup Modal */}
-        <AnimatePresence>
-          {showTestimonialModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-[24px] max-w-sm w-full p-6 shadow-medium border border-cream-dark text-left relative overflow-hidden flex flex-col"
-              >
-                {/* Top decorative gradient line */}
-                <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#7B1E3A]"></div>
-
-                {/* Header info */}
-                <div className="text-center mb-4 pt-2">
-                  <h3 className="font-serif text-base font-bold text-[#7B1E3A]">
-                    Terima Kasih Sudah Memesan ❤️
-                  </h3>
-                  <p className="text-xs text-gray-700 font-bold mt-2">
-                    Mohon dong teman-teman, kritik dan sarannya 😊
-                  </p>
-                  <p className="text-[11px] text-gray-500 leading-relaxed mt-1 max-w-[90%] mx-auto">
-                    Masukan dari teman-teman sangat berarti untuk kami agar D'Foria Kitchen bisa menjadi lebih baik lagi.
-                  </p>
-                </div>
-
-                {testiSuccess ? (
-                  <div className="text-center py-6 space-y-2 animate-fade-in">
-                    <p className="text-3xl">🎉</p>
-                    <p className="text-xs font-bold text-[#7B1E3A]">Masukan Terkirim!</p>
-                    <p className="text-[11px] text-gray-500">Terima kasih banyak atas kritik dan sarannya yang sangat berarti bagi kami.</p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleTestimonialSubmit} className="space-y-4">
-                    {/* Customer Name */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1" htmlFor="testi-name">
-                        Nama Pelanggan
-                      </label>
-                      <input
-                        id="testi-name"
-                        type="text"
-                        required
-                        value={testiName}
-                        onChange={(e) => setTestiName(e.target.value)}
-                        placeholder="Nama Anda"
-                        className="w-full bg-cream/20 text-gray-700 placeholder-gray-400 text-xs px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-[#7B1E3A] focus:border-[#7B1E3A] transition-all"
-                      />
-                    </div>
-
-                    {/* Feedback / Kritik & Saran */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1" htmlFor="testi-message">
-                        Kritik & Saran
-                      </label>
-                      <textarea
-                        id="testi-message"
-                        required
-                        rows={3}
-                        value={testiMessage}
-                        onChange={(e) => setTestiMessage(e.target.value)}
-                        placeholder="Tulis pengalaman, kritik, atau saran Anda di sini..."
-                        className="w-full bg-cream/20 text-gray-700 placeholder-gray-400 text-xs px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-[#7B1E3A] focus:border-[#7B1E3A] transition-all resize-none"
-                      />
-                    </div>
-
-                    {/* Buttons */}
-                    <div className="flex flex-col space-y-2 pt-1">
-                      <button
-                        type="submit"
-                        disabled={testiSubmitting}
-                        className="w-full py-2.5 bg-[#7B1E3A] hover:bg-[#7B1E3A]/90 text-white text-xs font-bold rounded-xl shadow-soft transition-all cursor-pointer flex items-center justify-center space-x-2 disabled:opacity-50"
-                      >
-                        {testiSubmitting ? (
-                          <>
-                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            <span>Mengirim...</span>
-                          </>
-                        ) : (
-                          <span>Kirim Masukan</span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowTestimonialModal(false)}
-                        className="w-full py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-xs font-bold text-gray-500 rounded-xl transition-all cursor-pointer"
-                      >
-                        Nanti Saja
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
       </div>
     );
   }
