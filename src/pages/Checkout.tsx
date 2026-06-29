@@ -5,10 +5,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Landmark, Wallet, CheckCircle2, ShieldCheck, Copy, Check } from 'lucide-react';
+import { ChevronLeft, Landmark, Wallet, CheckCircle2, ShieldCheck, Copy, Check, ArrowDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CartItem, Order, PaymentMethod, Coupon, StoreSettings } from '../types';
 import { dbService } from '../lib/firebase';
+import { useMemo } from 'react';
 
 interface CheckoutProps {
   cart: CartItem[];
@@ -32,6 +33,38 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
   const [loading, setLoading] = useState(false);
   const [successOrder, setSuccessOrder] = useState<Order | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Generate stable randomized thank you message for the specific customer order
+  const thankYouMessage = useMemo(() => {
+    if (!successOrder) return { title: '', body: '' };
+    const name = successOrder.customerName;
+    const variations = [
+      {
+        title: `Terima kasih, ${name}! 💖`,
+        body: `Tim D'Foria Kitchen sudah tidak sabar menyiapkan hidangan lezat untukmu.`
+      },
+      {
+        title: `Hai ${name}! 🍽️`,
+        body: `Pesananmu sudah berhasil dibuat. Tinggal satu langkah lagi untuk menikmati hidangan favoritmu.`
+      },
+      {
+        title: `Terima kasih, ${name} ✨`,
+        body: `Kami sangat senang kamu memilih D'Foria Kitchen hari ini.`
+      },
+      {
+        title: `${name}, terima kasih telah memesan di D'Foria Kitchen 🌷`,
+        body: `Hidangan spesialmu sedang menunggu konfirmasi.`
+      }
+    ];
+
+    // Simple hash of the order ID to pick a stable index
+    let hash = 0;
+    for (let i = 0; i < successOrder.id.length; i++) {
+      hash += successOrder.id.charCodeAt(i);
+    }
+    const index = hash % variations.length;
+    return variations[index];
+  }, [successOrder]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -237,15 +270,12 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
           </motion.div>
 
           {/* Success Header & Messages */}
-          <div className="space-y-2.5 mb-6 relative z-10">
-            <h1 className="font-serif text-2xl font-bold text-gray-800 tracking-wide">Terima Kasih</h1>
-            
-            <p className="text-xs text-gray-700 leading-relaxed font-semibold max-w-[90%] mx-auto">
-              Pesanan Anda telah berhasil dibuat dan sedang menunggu konfirmasi.
-            </p>
-            
-            <p className="text-[11px] text-gray-500 leading-relaxed max-w-[95%] mx-auto">
-              Terima kasih telah memilih D'Foria Kitchen. Kami akan menyiapkan pesanan terbaik untuk Anda.
+          <div className="space-y-3 mb-6 relative z-10 max-w-[90%] mx-auto">
+            <h1 className="font-serif text-xl font-extrabold text-[#7B1E3A] tracking-wide leading-tight">
+              {thankYouMessage.title}
+            </h1>
+            <p className="text-[12.5px] text-gray-700 leading-relaxed font-medium">
+              {thankYouMessage.body}
             </p>
           </div>
 
@@ -339,23 +369,72 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
           )}
 
           {/* Action Buttons */}
-          <div className="space-y-3 w-full relative z-10">
+          <div className="space-y-4 w-full relative z-10">
+            {/* Highlighted Warning Card */}
+            <div className="w-full bg-[#FFF8EB] border border-[#E2B93B]/40 rounded-2xl p-4.5 text-left relative overflow-hidden shadow-soft">
+              <div className="absolute top-0 bottom-0 left-0 w-1.5 bg-[#E2B93B]" />
+              <div className="pl-2.5 space-y-2">
+                <div className="flex items-center space-x-1.5 text-[#7B1E3A] font-extrabold text-[11px] uppercase tracking-wider">
+                  <span>⚠️ LANGKAH TERAKHIR</span>
+                </div>
+                <p className="text-[12.5px] font-black text-gray-800 leading-normal">
+                  Pesanan Anda <span className="text-[#7B1E3A] underline underline-offset-2 decoration-2 font-black">BELUM</span> diproses.
+                </p>
+                <p className="text-[11.5px] text-gray-600 leading-relaxed">
+                  Silakan tekan tombol WhatsApp di bawah untuk mengirim pesanan ke admin.
+                </p>
+                <div className="flex items-start space-x-1.5 text-[11px] font-extrabold text-[#7B1E3A] bg-[#7B1E3A]/5 border border-[#7B1E3A]/15 rounded-xl px-2.5 py-2 mt-2">
+                  <span className="shrink-0 text-xs">➡️</span>
+                  <span className="leading-relaxed font-black">Pesanan hanya akan diproses setelah dikirim ke WhatsApp.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Subtle animated downward arrow pointing to the WhatsApp button */}
+            <div className="flex flex-col items-center pt-2">
+              <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+                Kirim Rincian Pesanan
+              </span>
+              <motion.div
+                animate={{ y: [0, 5, 0] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                className="text-[#128C7E]"
+              >
+                <ArrowDown size={20} className="stroke-[3]" />
+              </motion.div>
+            </div>
+
+            {/* Premium WhatsApp Button with gentle pulse animation */}
             <motion.button
               id="btn-whatsapp-confirm"
               onClick={() => sendWhatsAppOrder(successOrder)}
-              whileHover={{ scale: 1.02 }}
+              animate={{
+                scale: [1, 1.03, 1],
+                boxShadow: [
+                  "0 4px 14px 0 rgba(37, 211, 102, 0.2)",
+                  "0 4px 22px 6px rgba(37, 211, 102, 0.45)",
+                  "0 4px 14px 0 rgba(37, 211, 102, 0.2)"
+                ]
+              }}
+              transition={{
+                duration: 2.5,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.98 }}
-              className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white text-xs font-bold py-3.5 rounded-xl shadow-soft transition-all cursor-pointer flex items-center justify-center space-x-2"
+              className="w-full bg-[#25D366] hover:bg-[#20ba59] text-[#0F5132] text-sm font-black py-4 px-6 rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-2.5 border border-[#1f9c4d]/30"
             >
-              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 fill-[#0F5132]" viewBox="0 0 24 24">
                 <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.717-1.455L0 24zm6.59-4.846c1.6.95 3.488 1.449 5.412 1.451 5.428 0 9.85-4.417 9.853-9.852.002-2.633-1.021-5.107-2.885-6.973C17.162 1.916 14.693.892 12.062.89 6.634.89 2.221 5.302 2.218 10.73c-.001 1.932.504 3.82 1.463 5.433l-.961 3.511 3.593-.942z"/>
               </svg>
-              <span>Lanjut ke WhatsApp</span>
+              <span>Kirim Pesanan ke WhatsApp</span>
             </motion.button>
             
+            {/* Back to Home Button (understated, gray styling) */}
             <button
               onClick={() => navigate('/')}
-              className="w-full bg-[#FAF8F5] hover:bg-[#EAE3D2] text-gray-600 border border-cream-dark/60 text-xs font-bold py-3.5 rounded-xl transition-all cursor-pointer shadow-soft"
+              className="w-full bg-transparent hover:bg-gray-50 text-gray-400 hover:text-gray-600 text-xs font-semibold py-3.5 rounded-xl transition-all cursor-pointer border border-transparent hover:border-gray-200"
             >
               Kembali ke Beranda
             </button>
