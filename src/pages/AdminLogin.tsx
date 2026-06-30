@@ -128,10 +128,6 @@ export default function AdminLogin() {
             <span>Kembali ke Toko</span>
           </button>
         </form>
-
-        <p className="text-[10px] text-gray-400 mt-6 text-center leading-normal">
-          Hint pemula: Gunakan username <strong className="text-gray-600 font-mono">admin</strong> dan password <strong className="text-gray-600 font-mono">admin123</strong> untuk mencoba sandbox.
-        </p>
       </div>
     </div>
   );

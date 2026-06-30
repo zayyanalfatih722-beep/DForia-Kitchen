@@ -43,6 +43,8 @@ export default function AdminMenu() {
   });
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Initial Load (Settings are fetched statically, menus are updated in real-time)
   const loadAllData = async () => {
@@ -82,6 +84,8 @@ export default function AdminMenu() {
   };
 
   const handleOpenMenuModal = (menu: MenuItem | null = null) => {
+    setSaving(false);
+    setSaveError(null);
     if (menu) {
       setSelectedMenu(menu);
       setMenuForm({
@@ -118,16 +122,25 @@ export default function AdminMenu() {
 
   const handleSaveMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    const itemToSave: MenuItem = {
-      id: selectedMenu ? selectedMenu.id : '',
-      ...menuForm,
-      // If stock is 0, auto-set available flag for backward compatibility
-      available: menuForm.stock > 0 && menuForm.isAvailable
-    };
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const itemToSave: MenuItem = {
+        id: selectedMenu ? selectedMenu.id : '',
+        ...menuForm,
+        // If stock is 0, auto-set available flag for backward compatibility
+        available: menuForm.stock > 0 && menuForm.isAvailable
+      };
 
-    await dbService.saveMenu(itemToSave);
-    setMenuModalOpen(false);
-    loadAllData();
+      await dbService.saveMenu(itemToSave);
+      setMenuModalOpen(false);
+      loadAllData();
+    } catch (err: any) {
+      console.error("Gagal menyimpan menu:", err);
+      setSaveError(err?.message || "Gagal menyimpan menu ke cloud database. Silakan periksa koneksi internet Anda.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteMenu = async (id: string) => {
@@ -148,9 +161,52 @@ export default function AdminMenu() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        setSaveError("File harus berupa gambar.");
+        return;
+      }
+
+      setSaving(true);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setMenuForm(prev => ({ ...prev, image: reader.result as string }));
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Resize if dimension exceeds 800px
+          const maxDim = 800;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Compress to JPEG with 0.7 quality to keep it under 100KB
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            setMenuForm(prev => ({ ...prev, image: compressedDataUrl }));
+          }
+          setSaving(false);
+        };
+        img.onerror = () => {
+          setSaveError("Gagal memproses file gambar.");
+          setSaving(false);
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => {
+        setSaveError("Gagal membaca file.");
+        setSaving(false);
       };
       reader.readAsDataURL(file);
     }
@@ -466,20 +522,37 @@ export default function AdminMenu() {
                       </label>
                     </div>
 
+                    {/* Error Banner */}
+                    {saveError && (
+                      <div className="bg-red-50 text-red-600 border border-red-200 p-3.5 rounded-xl font-medium text-[11px] leading-relaxed text-left flex items-start space-x-2">
+                        <span className="text-sm shrink-0">⚠️</span>
+                        <span>{saveError}</span>
+                      </div>
+                    )}
+
                     {/* Form Buttons */}
                     <div className="flex space-x-2 pt-4 border-t border-cream/50 justify-end">
                       <button
                         type="button"
+                        disabled={saving}
                         onClick={() => setMenuModalOpen(false)}
-                        className="bg-gray-100 hover:bg-cream text-gray-500 font-bold px-5 py-2.5 rounded-xl transition-colors cursor-pointer"
+                        className={`bg-gray-100 hover:bg-cream text-gray-500 font-bold px-5 py-2.5 rounded-xl transition-colors ${
+                          saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
                       >
                         Batal
                       </button>
                       <button
                         type="submit"
-                        className="bg-primary hover:bg-primary-dark text-white font-bold px-5 py-2.5 rounded-xl transition-colors cursor-pointer"
+                        disabled={saving}
+                        className={`bg-primary hover:bg-primary-dark text-white font-bold px-5 py-2.5 rounded-xl transition-all flex items-center space-x-1.5 ${
+                          saving ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
                       >
-                        Simpan Menu
+                        {saving && (
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        )}
+                        <span>{saving ? 'Menyimpan...' : 'Simpan Menu'}</span>
                       </button>
                     </div>
                   </form>

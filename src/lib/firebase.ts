@@ -302,6 +302,17 @@ export const dbService = {
             onUpdate(menus);
           } else {
             onUpdate(DEFAULT_MENUS);
+            // Auto-seed Firestore in the background so they are stored in the cloud
+            (async () => {
+              try {
+                console.log("Auto-seeding empty Firestore menu collection...");
+                for (const item of DEFAULT_MENUS) {
+                  await setDoc(doc(db, 'menu', item.id), item);
+                }
+              } catch (e) {
+                console.error("Error auto-seeding menus in subscribe:", e);
+              }
+            })();
           }
         }, (err) => {
           console.error("onSnapshot error for menus:", err);
@@ -416,6 +427,17 @@ export const dbService = {
             onUpdate(banners);
           } else {
             onUpdate(DEFAULT_BANNERS);
+            // Auto-seed Firestore in the background
+            (async () => {
+              try {
+                console.log("Auto-seeding empty Firestore banners collection...");
+                for (const item of DEFAULT_BANNERS) {
+                  await setDoc(doc(db, 'banners', item.id), item);
+                }
+              } catch (e) {
+                console.error("Error auto-seeding banners in subscribe:", e);
+              }
+            })();
           }
         }, (err) => {
           console.error("onSnapshot error for banners:", err);
@@ -796,6 +818,15 @@ export const dbService = {
             });
           } else {
             onUpdate(DEFAULT_SETTINGS);
+            // Auto-seed Firestore in the background
+            (async () => {
+              try {
+                console.log("Auto-seeding empty Firestore settings collection...");
+                await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
+              } catch (e) {
+                console.error("Error auto-seeding settings in subscribe:", e);
+              }
+            })();
           }
         }, (err) => {
           console.error("onSnapshot error for settings:", err);
@@ -919,6 +950,9 @@ export const dbService = {
         // For simple beginners, we check credentials locally OR sign in to Firebase with custom email
         const adminEmail = username.includes('@') ? username : `${username}@dforiakitchen.com`;
         await signInWithEmailAndPassword(auth, adminEmail, password);
+        localStorage.setItem('df_admin_username', username);
+        const userState = { username, loggedIn: true };
+        localStorage.setItem('df_admin_user', JSON.stringify(userState));
         return true;
       } catch (err) {
         console.warn("Firebase Auth failed, trying local fallback credentials:", err);
@@ -926,8 +960,9 @@ export const dbService = {
     }
 
     // 2. Fallback local credentials (super easy for beginner local testing)
+    const savedUsername = localStorage.getItem('df_admin_username') || 'admin';
     const savedPassword = localStorage.getItem('df_admin_password') || 'admin123';
-    if (username === 'admin' && password === savedPassword) {
+    if (username === savedUsername && password === savedPassword) {
       const userState = { username, loggedIn: true };
       localStorage.setItem('df_admin_user', JSON.stringify(userState));
       return true;
@@ -943,7 +978,8 @@ export const dbService = {
         console.error("Firebase Signout Error:", err);
       }
     }
-    localStorage.setItem('df_admin_user', JSON.stringify({ username: 'admin', loggedIn: false }));
+    const savedUsername = localStorage.getItem('df_admin_username') || 'admin';
+    localStorage.setItem('df_admin_user', JSON.stringify({ username: savedUsername, loggedIn: false }));
   },
 
   isAdminLoggedIn(): boolean {
@@ -956,6 +992,34 @@ export const dbService = {
 
   isCloudMode(): boolean {
     return !!(db && isFirebaseConfigured);
+  },
+
+  getAdminUsername(): string {
+    return localStorage.getItem('df_admin_username') || 'admin';
+  },
+
+  async changeAdminUsername(newUsername: string): Promise<void> {
+    if (auth && isFirebaseConfigured && auth.currentUser) {
+      try {
+        const { updateEmail } = await import('firebase/auth');
+        const newEmail = `${newUsername}@dforiakitchen.com`;
+        await updateEmail(auth.currentUser, newEmail);
+        localStorage.setItem('df_admin_username', newUsername);
+        console.log("Username (email) updated successfully in Firebase Auth!");
+      } catch (err) {
+        console.error("Firebase Auth change email error:", err);
+        throw err;
+      }
+    } else {
+      localStorage.setItem('df_admin_username', newUsername);
+      console.log("Username updated successfully in Local Sandbox!");
+    }
+    // Update logged in user state
+    const local = JSON.parse(localStorage.getItem('df_admin_user') || '{}');
+    if (local.loggedIn) {
+      local.username = newUsername;
+      localStorage.setItem('df_admin_user', JSON.stringify(local));
+    }
   },
 
   async changeAdminPassword(newPassword: string): Promise<void> {

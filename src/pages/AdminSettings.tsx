@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   XCircle,
   Lock,
+  User,
   Globe,
   Database,
   Eye,
@@ -43,6 +44,13 @@ export default function AdminSettings() {
     locationCity: '',
     locationProvince: ''
   });
+
+  // Username states
+  const [usernameForm, setUsernameForm] = useState({
+    newUsername: dbService.getAdminUsername()
+  });
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Password states
   const [passwordForm, setPasswordForm] = useState({
@@ -148,6 +156,38 @@ export default function AdminSettings() {
       });
     } finally {
       setPasswordLoading(false);
+    }
+  };
+
+  const handleChangeUsername = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUsernameStatus(null);
+
+    const trimmedUsername = usernameForm.newUsername.trim();
+    if (!trimmedUsername) {
+      setUsernameStatus({ type: 'error', message: 'Username baru tidak boleh kosong.' });
+      return;
+    }
+
+    if (trimmedUsername.length < 3) {
+      setUsernameStatus({ type: 'error', message: 'Username baru minimal harus 3 karakter.' });
+      return;
+    }
+
+    setUsernameLoading(true);
+    try {
+      await dbService.changeAdminUsername(trimmedUsername);
+      setUsernameStatus({ type: 'success', message: 'Username admin berhasil diperbarui!' });
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => setUsernameStatus(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+      setUsernameStatus({ 
+        type: 'error', 
+        message: "Gagal mengganti username: " + (err?.message || "Terjadi kesalahan") 
+      });
+    } finally {
+      setUsernameLoading(false);
     }
   };
 
@@ -447,6 +487,69 @@ export default function AdminSettings() {
                       </p>
                     </div>
                   )}
+                </div>
+
+                {/* Change Username Card */}
+                <div className="bg-white rounded-[24px] p-6 border border-cream-dark/30 shadow-soft">
+                  <h3 className="font-serif font-bold text-base text-gray-800 mb-4 pb-2 border-b border-cream/50 flex items-center space-x-2">
+                    <User size={16} className="text-primary" />
+                    <span>Ubah Username Admin</span>
+                  </h3>
+
+                  {usernameStatus && (
+                    <div className={`mb-5 p-4 rounded-xl border flex items-start space-x-3 text-xs transition-all animate-fade-in ${
+                      usernameStatus.type === 'success' 
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                    }`}>
+                      {usernameStatus.type === 'success' ? (
+                        <CheckCircle2 size={16} className="shrink-0 text-emerald-600 mt-0.5" />
+                      ) : (
+                        <XCircle size={16} className="shrink-0 text-rose-600 mt-0.5" />
+                      )}
+                      <div className="flex-1 font-medium">{usernameStatus.message}</div>
+                      <button 
+                        onClick={() => setUsernameStatus(null)}
+                        className="text-gray-400 hover:text-gray-600 font-bold ml-2 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleChangeUsername} className="space-y-4 text-xs text-gray-600">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="set-new-username">Username Baru</label>
+                      <input
+                        id="set-new-username"
+                        type="text"
+                        required
+                        placeholder="Masukkan username baru"
+                        value={usernameForm.newUsername}
+                        onChange={(e) => setUsernameForm({ newUsername: e.target.value })}
+                        className="w-full bg-cream/15 px-3.5 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      />
+                    </div>
+
+                    <p className="text-[10px] text-gray-400 leading-normal">
+                      Username baru minimal terdiri dari 3 karakter. Setelah diperbarui, username baru langsung digunakan untuk masuk ke panel admin ini.
+                    </p>
+
+                    <div className="pt-2">
+                      <button
+                        id="btn-save-username-submit"
+                        type="submit"
+                        disabled={usernameLoading}
+                        className="w-full bg-primary hover:bg-primary-dark disabled:bg-gray-400 text-white font-bold text-xs py-3.5 px-6 rounded-xl shadow-soft transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer flex items-center justify-center space-x-2"
+                      >
+                        {usernameLoading ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span>Perbarui Username</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
                 </div>
 
                 {/* Change Password Card */}
