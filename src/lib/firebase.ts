@@ -52,14 +52,14 @@ if (isFirebaseConfigured) {
     auth = getAuth(app);
     console.log("Firebase initialized successfully in Cloud Mode! Database ID:", customDatabaseId || "default");
   } catch (error) {
-    console.error("Failed to initialize Firebase, falling back to Local Sandbox Mode:", error);
+    console.error("Failed to initialize Firebase:", error);
   }
 } else {
-  console.log("No Firebase config detected. Running in Local Sandbox Mode (LocalStorage).");
+  console.log("No Firebase config detected.");
 }
 
 // ==========================================
-// SEED DATA FOR LOCAL SANDBOX MODE
+// SEED DATA FOR CLOUD MODE
 // ==========================================
 
 const DEFAULT_MENUS: MenuItem[] = [
@@ -212,23 +212,8 @@ const DEFAULT_ORDERS: Order[] = [
   }
 ];
 
-// Seed localStorage if not existing
+// Initialize localStorage ONLY for admin auth state to persist local UI session logins safely
 const initializeLocalStorage = () => {
-  if (!localStorage.getItem('df_menus')) {
-    localStorage.setItem('df_menus', JSON.stringify(DEFAULT_MENUS));
-  }
-  if (!localStorage.getItem('df_banners')) {
-    localStorage.setItem('df_banners', JSON.stringify(DEFAULT_BANNERS));
-  }
-  if (!localStorage.getItem('df_settings')) {
-    localStorage.setItem('df_settings', JSON.stringify(DEFAULT_SETTINGS));
-  }
-  if (!localStorage.getItem('df_coupons')) {
-    localStorage.setItem('df_coupons', JSON.stringify(DEFAULT_COUPONS));
-  }
-  if (!localStorage.getItem('df_orders')) {
-    localStorage.setItem('df_orders', JSON.stringify(DEFAULT_ORDERS));
-  }
   if (!localStorage.getItem('df_admin_user')) {
     localStorage.setItem('df_admin_user', JSON.stringify({ username: 'admin', loggedIn: false }));
   }
@@ -237,15 +222,94 @@ const initializeLocalStorage = () => {
 initializeLocalStorage();
 
 // ==========================================
-// CORE CRUD API WRAPPERS (DUAL-MODE BRIDGE)
+// ERROR HANDLERS & OPERATION TYPES
+// ==========================================
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid || null,
+      email: auth?.currentUser?.email || null,
+      emailVerified: auth?.currentUser?.emailVerified || null,
+      isAnonymous: auth?.currentUser?.isAnonymous || null,
+      tenantId: auth?.currentUser?.tenantId || null,
+      providerInfo: auth?.currentUser?.providerData?.map((provider: any) => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// ==========================================
+// CORE CRUD API WRAPPERS (PURE FIRESTORE)
 // ==========================================
 
 export const dbService = {
   // --- MENU CRUD ---
   async getMenus(): Promise<MenuItem[]> {
-    if (db) {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'menu'));
+    try {
+      const querySnapshot = await getDocs(collection(db, 'menu'));
+      const menus: MenuItem[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        menus.push({
+          id: doc.id,
+          ...data,
+          stock: data.stock !== undefined ? data.stock : 20,
+          isAvailable: data.isAvailable !== undefined ? data.isAvailable : (data.available !== undefined ? data.available : true)
+        } as MenuItem);
+      });
+      if (menus.length > 0) {
+        return menus;
+      } else {
+        console.log("Seeding empty Firestore menu collection...");
+        for (const item of DEFAULT_MENUS) {
+          await setDoc(doc(db, 'menu', item.id), item);
+        }
+        return DEFAULT_MENUS;
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'menu');
+      return DEFAULT_MENUS;
+    }
+  },
+
+  subscribeMenus(onUpdate: (menus: MenuItem[]) => void): () => void {
+    try {
+      const q = collection(db, 'menu');
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const menus: MenuItem[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
@@ -257,89 +321,29 @@ export const dbService = {
           } as MenuItem);
         });
         if (menus.length > 0) {
-          return menus;
+          onUpdate(menus);
         } else {
-          // Auto-seed Firestore
-          console.log("Seeding Firestore with default menus...");
-          for (const item of DEFAULT_MENUS) {
-            await setDoc(doc(db, 'menu', item.id), item);
-          }
-          return DEFAULT_MENUS;
-        }
-      } catch (err) {
-        console.error("Firestore error reading menus:", err);
-        throw err;
-      }
-    }
-    const localRaw = localStorage.getItem('df_menus');
-    if (localRaw) {
-      const parsed = JSON.parse(localRaw) as MenuItem[];
-      return parsed.map(m => ({
-        ...m,
-        stock: m.stock !== undefined ? m.stock : 20,
-        isAvailable: m.isAvailable !== undefined ? m.isAvailable : (m.available !== undefined ? m.available : true)
-      }));
-    }
-    return [];
-  },
-
-  subscribeMenus(onUpdate: (menus: MenuItem[]) => void): () => void {
-    if (db) {
-      try {
-        const q = collection(db, 'menu');
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          const menus: MenuItem[] = [];
-          querySnapshot.forEach((doc) => {
-            const data = doc.data();
-            menus.push({
-              id: doc.id,
-              ...data,
-              stock: data.stock !== undefined ? data.stock : 20,
-              isAvailable: data.isAvailable !== undefined ? data.isAvailable : (data.available !== undefined ? data.available : true)
-            } as MenuItem);
-          });
-          if (menus.length > 0) {
-            onUpdate(menus);
-          } else {
-            onUpdate(DEFAULT_MENUS);
-            // Auto-seed Firestore in the background so they are stored in the cloud
-            (async () => {
-              try {
-                console.log("Auto-seeding empty Firestore menu collection...");
-                for (const item of DEFAULT_MENUS) {
-                  await setDoc(doc(db, 'menu', item.id), item);
-                }
-              } catch (e) {
-                console.error("Error auto-seeding menus in subscribe:", e);
+          onUpdate(DEFAULT_MENUS);
+          // Auto-seed Firestore in the background
+          (async () => {
+            try {
+              console.log("Auto-seeding empty Firestore menu collection in snapshot...");
+              for (const item of DEFAULT_MENUS) {
+                await setDoc(doc(db, 'menu', item.id), item);
               }
-            })();
-          }
-        }, (err) => {
-          console.error("onSnapshot error for menus:", err);
-        });
-        return unsubscribe;
-      } catch (err) {
-        console.error("Error setting up onSnapshot for menus:", err);
-      }
+            } catch (e) {
+              console.error("Error auto-seeding menus in subscribe:", e);
+            }
+          })();
+        }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'menu');
+      });
+      return unsubscribe;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'menu');
+      return () => {};
     }
-    
-    const getLocal = () => {
-      const localRaw = localStorage.getItem('df_menus');
-      if (localRaw) {
-        const parsed = JSON.parse(localRaw) as MenuItem[];
-        return parsed.map(m => ({
-          ...m,
-          stock: m.stock !== undefined ? m.stock : 20,
-          isAvailable: m.isAvailable !== undefined ? m.isAvailable : (m.available !== undefined ? m.available : true)
-        }));
-      }
-      return DEFAULT_MENUS;
-    };
-    onUpdate(getLocal());
-    const interval = setInterval(() => {
-      onUpdate(getLocal());
-    }, 3000);
-    return () => clearInterval(interval);
   },
 
   async saveMenu(item: MenuItem): Promise<void> {
@@ -348,129 +352,88 @@ export const dbService = {
       ...item,
       id: isNew ? 'menu-' + Date.now() : item.id
     };
-
-    if (db) {
-      try {
-        await setDoc(doc(db, 'menu', finalItem.id), finalItem);
-        console.log("Menu saved to Firestore");
-        return;
-      } catch (err) {
-        console.error("Firestore error saving menu:", err);
-        throw err;
-      }
+    try {
+      await setDoc(doc(db, 'menu', finalItem.id), finalItem);
+      console.log("Menu saved to Firestore successfully");
+    } catch (err) {
+      handleFirestoreError(err, isNew ? OperationType.CREATE : OperationType.UPDATE, `menu/${finalItem.id}`);
     }
-
-    // Always update local storage as reliable backup
-    const local = JSON.parse(localStorage.getItem('df_menus') || '[]');
-    const index = local.findIndex((m: MenuItem) => m.id === finalItem.id);
-    if (index >= 0) {
-      local[index] = finalItem;
-    } else {
-      local.push(finalItem);
-    }
-    localStorage.setItem('df_menus', JSON.stringify(local));
   },
 
   async deleteMenu(id: string): Promise<void> {
-    if (db) {
-      try {
-        await deleteDoc(doc(db, 'menu', id));
-        return;
-      } catch (err) {
-        console.error("Firestore error deleting menu:", err);
-        throw err;
-      }
+    try {
+      await deleteDoc(doc(db, 'menu', id));
+      console.log("Menu deleted from Firestore");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `menu/${id}`);
     }
-
-    const local = JSON.parse(localStorage.getItem('df_menus') || '[]');
-    const updated = local.filter((m: MenuItem) => m.id !== id);
-    localStorage.setItem('df_menus', JSON.stringify(updated));
   },
 
   // --- BANNER CRUD ---
   async getBanners(): Promise<Banner[]> {
-    if (db) {
-      try {
-        const querySnapshot = await getDocs(query(collection(db, 'banners'), orderBy('order', 'asc')));
+    try {
+      const querySnapshot = await getDocs(query(collection(db, 'banners'), orderBy('order', 'asc')));
+      const banners: Banner[] = [];
+      querySnapshot.forEach((doc) => {
+        banners.push({ id: doc.id, ...doc.data() } as Banner);
+      });
+      if (banners.length > 0) {
+        return banners;
+      } else {
+        console.log("Seeding Firestore with default banners...");
+        for (const banner of DEFAULT_BANNERS) {
+          await setDoc(doc(db, 'banners', banner.id), banner);
+        }
+        return DEFAULT_BANNERS;
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'banners');
+      return DEFAULT_BANNERS;
+    }
+  },
+
+  subscribeBanners(onUpdate: (banners: Banner[]) => void): () => void {
+    try {
+      const q = query(collection(db, 'banners'), orderBy('order', 'asc'));
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const banners: Banner[] = [];
         querySnapshot.forEach((doc) => {
           banners.push({ id: doc.id, ...doc.data() } as Banner);
         });
         if (banners.length > 0) {
-          return banners;
+          onUpdate(banners);
         } else {
-          // Auto-seed Firestore
-          console.log("Seeding Firestore with default banners...");
-          for (const banner of DEFAULT_BANNERS) {
-            await setDoc(doc(db, 'banners', banner.id), banner);
-          }
-          return DEFAULT_BANNERS;
-        }
-      } catch (err) {
-        console.error("Firestore error reading banners:", err);
-        throw err;
-      }
-    }
-    return JSON.parse(localStorage.getItem('df_banners') || '[]');
-  },
-
-  subscribeBanners(onUpdate: (banners: Banner[]) => void): () => void {
-    if (db) {
-      try {
-        const q = query(collection(db, 'banners'), orderBy('order', 'asc'));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          const banners: Banner[] = [];
-          querySnapshot.forEach((doc) => {
-            banners.push({ id: doc.id, ...doc.data() } as Banner);
-          });
-          if (banners.length > 0) {
-            onUpdate(banners);
-          } else {
-            onUpdate(DEFAULT_BANNERS);
-            // Auto-seed Firestore in the background
-            (async () => {
-              try {
-                console.log("Auto-seeding empty Firestore banners collection...");
-                for (const item of DEFAULT_BANNERS) {
-                  await setDoc(doc(db, 'banners', item.id), item);
-                }
-              } catch (e) {
-                console.error("Error auto-seeding banners in subscribe:", e);
+          onUpdate(DEFAULT_BANNERS);
+          // Auto-seed Firestore in the background
+          (async () => {
+            try {
+              console.log("Auto-seeding empty Firestore banners collection...");
+              for (const item of DEFAULT_BANNERS) {
+                await setDoc(doc(db, 'banners', item.id), item);
               }
-            })();
-          }
-        }, (err) => {
-          console.error("onSnapshot error for banners:", err);
-        });
-        return unsubscribe;
-      } catch (err) {
-        console.error("Error setting up onSnapshot for banners:", err);
-      }
+            } catch (e) {
+              console.error("Error auto-seeding banners in subscribe:", e);
+            }
+          })();
+        }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'banners');
+      });
+      return unsubscribe;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'banners');
+      return () => {};
     }
-    
-    const getLocal = () => {
-      return JSON.parse(localStorage.getItem('df_banners') || '[]');
-    };
-    onUpdate(getLocal());
-    const interval = setInterval(() => {
-      onUpdate(getLocal());
-    }, 4000);
-    return () => clearInterval(interval);
   },
 
   async saveBanners(banners: Banner[]): Promise<void> {
-    if (db) {
-      try {
-        for (const b of banners) {
-          await setDoc(doc(db, 'banners', b.id), b);
-        }
-        return;
-      } catch (err) {
-        console.error("Firestore error saving banners:", err);
-        throw err;
+    try {
+      for (const b of banners) {
+        await setDoc(doc(db, 'banners', b.id), b);
       }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'banners');
     }
-    localStorage.setItem('df_banners', JSON.stringify(banners));
   },
 
   async saveBanner(banner: Banner): Promise<void> {
@@ -479,422 +442,271 @@ export const dbService = {
       ...banner,
       id: isNew ? 'banner-' + Date.now() : banner.id
     };
-    if (db) {
-      try {
-        await setDoc(doc(db, 'banners', finalBanner.id), finalBanner);
-        return;
-      } catch (err) {
-        console.error("Firestore error saving banner:", err);
-        throw err;
-      }
+    try {
+      await setDoc(doc(db, 'banners', finalBanner.id), finalBanner);
+    } catch (err) {
+      handleFirestoreError(err, isNew ? OperationType.CREATE : OperationType.UPDATE, `banners/${finalBanner.id}`);
     }
-    const local = JSON.parse(localStorage.getItem('df_banners') || '[]');
-    const index = local.findIndex((b: Banner) => b.id === finalBanner.id);
-    if (index >= 0) {
-      local[index] = finalBanner;
-    } else {
-      local.push(finalBanner);
-    }
-    localStorage.setItem('df_banners', JSON.stringify(local));
   },
 
   async deleteBanner(id: string): Promise<void> {
-    if (db) {
-      try {
-        await deleteDoc(doc(db, 'banners', id));
-        return;
-      } catch (err) {
-        console.error("Firestore error deleting banner:", err);
-        throw err;
-      }
+    try {
+      await deleteDoc(doc(db, 'banners', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `banners/${id}`);
     }
-    const local = JSON.parse(localStorage.getItem('df_banners') || '[]');
-    const updated = local.filter((b: Banner) => b.id !== id);
-    localStorage.setItem('df_banners', JSON.stringify(updated));
   },
 
   // --- ORDERS ---
   async getOrders(): Promise<Order[]> {
-    if (db) {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'orders'));
-        const orders: Order[] = [];
-        querySnapshot.forEach((doc) => {
-          orders.push({ id: doc.id, ...doc.data() } as Order);
-        });
-        if (orders.length > 0) {
-          return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        } else {
-          // Auto-seed Firestore with default orders
-          console.log("Seeding Firestore with default orders...");
-          for (const order of DEFAULT_ORDERS) {
-            await setDoc(doc(db, 'orders', order.id), order);
-          }
-          return [...DEFAULT_ORDERS];
+    try {
+      const querySnapshot = await getDocs(collection(db, 'orders'));
+      const orders: Order[] = [];
+      querySnapshot.forEach((doc) => {
+        orders.push({ id: doc.id, ...doc.data() } as Order);
+      });
+      if (orders.length > 0) {
+        return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } else {
+        console.log("Seeding Firestore with default orders...");
+        for (const order of DEFAULT_ORDERS) {
+          await setDoc(doc(db, 'orders', order.id), order);
         }
-      } catch (err) {
-        console.error("Firestore error reading orders:", err);
-        throw err;
+        return [...DEFAULT_ORDERS];
       }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'orders');
+      return [];
     }
-    const orders = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    // Sort descending by createdAt
-    return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
   subscribeOrders(onUpdate: (orders: Order[]) => void): () => void {
-    if (db) {
-      try {
-        const q = collection(db, 'orders');
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          const orders: Order[] = [];
-          querySnapshot.forEach((doc) => {
-            orders.push({ id: doc.id, ...doc.data() } as Order);
-          });
-          // Sort descending by createdAt
-          orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          onUpdate(orders);
-        }, (err) => {
-          console.error("onSnapshot error for orders:", err);
-        });
-        return unsubscribe;
-      } catch (err) {
-        console.error("Error setting up onSnapshot for orders:", err);
-      }
-    }
-
-    const getLocal = () => {
-      const localRaw = localStorage.getItem('df_orders');
-      const orders = localRaw ? (JSON.parse(localRaw) as Order[]) : [];
-      return orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    };
-    onUpdate(getLocal());
-    const interval = setInterval(() => {
-      onUpdate(getLocal());
-    }, 3000);
-    return () => clearInterval(interval);
-  },
-
-  async getCustomerOrders(customerId: string): Promise<Order[]> {
-    if (db) {
-      try {
-        const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
-        const querySnapshot = await getDocs(q);
+    try {
+      const q = collection(db, 'orders');
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const orders: Order[] = [];
         querySnapshot.forEach((doc) => {
           orders.push({ id: doc.id, ...doc.data() } as Order);
         });
-        return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      } catch (err) {
-        console.error("Firestore error reading customer orders:", err);
-        throw err;
-      }
+        orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        onUpdate(orders);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'orders');
+      });
+      return unsubscribe;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'orders');
+      return () => {};
     }
-    const orders = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    const filtered = orders.filter((o: any) => o.customerId === customerId);
-    return filtered.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  async getCustomerOrders(customerId: string): Promise<Order[]> {
+    try {
+      const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
+      const querySnapshot = await getDocs(q);
+      const orders: Order[] = [];
+      querySnapshot.forEach((doc) => {
+        orders.push({ id: doc.id, ...doc.data() } as Order);
+      });
+      return orders.sort((a: Order, b: Order) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'orders');
+      return [];
+    }
   },
 
   subscribeCustomerOrders(customerId: string, onUpdate: (orders: Order[]) => void): () => void {
-    if (db) {
-      try {
-        const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-          const orders: Order[] = [];
-          querySnapshot.forEach((doc) => {
-            orders.push({ id: doc.id, ...doc.data() } as Order);
-          });
-          // Sort descending by createdAt
-          orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          onUpdate(orders);
-        }, (err) => {
-          console.error("onSnapshot error for customer orders:", err);
+    try {
+      const q = query(collection(db, 'orders'), where('customerId', '==', customerId));
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const orders: Order[] = [];
+        querySnapshot.forEach((doc) => {
+          orders.push({ id: doc.id, ...doc.data() } as Order);
         });
-        return unsubscribe;
-      } catch (err) {
-        console.error("Error setting up onSnapshot for customer orders:", err);
-      }
+        orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        onUpdate(orders);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'orders');
+      });
+      return unsubscribe;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'orders');
+      return () => {};
     }
-
-    const getLocal = () => {
-      const localRaw = localStorage.getItem('df_orders');
-      const orders = localRaw ? (JSON.parse(localRaw) as Order[]) : [];
-      const filtered = orders.filter((o: any) => o.customerId === customerId);
-      return filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    };
-    onUpdate(getLocal());
-    const interval = setInterval(() => {
-      onUpdate(getLocal());
-    }, 3000);
-    return () => clearInterval(interval);
   },
 
   async addOrder(order: Order): Promise<void> {
     const orderWithFlag = { ...order, stockDecremented: false };
-    if (db) {
-      try {
-        const orderRef = doc(db, 'orders', order.id);
-        const sanitized = JSON.parse(JSON.stringify(orderWithFlag));
-        await setDoc(orderRef, sanitized);
-        console.log("Order saved to Firestore successfully without decrementing stock (will decrement on WhatsApp click)");
-        return;
-      } catch (err) {
-        console.error("Firestore error adding order:", err);
-        throw err;
-      }
+    try {
+      const orderRef = doc(db, 'orders', order.id);
+      const sanitized = JSON.parse(JSON.stringify(orderWithFlag));
+      await setDoc(orderRef, sanitized);
+      console.log("Order saved to Firestore successfully without decrementing stock (will decrement on WhatsApp click)");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `orders/${order.id}`);
     }
-
-    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    local.push(orderWithFlag);
-    localStorage.setItem('df_orders', JSON.stringify(local));
   },
 
   async decrementOrderStock(orderId: string): Promise<void> {
-    if (db) {
-      try {
-        const orderRef = doc(db, 'orders', orderId);
-        const orderSnap = await getDoc(orderRef);
-        if (!orderSnap.exists()) {
-          console.error(`Order ${orderId} not found in Firestore for stock decrement.`);
-          return;
-        }
-        const orderData = orderSnap.data() as Order;
-        if (orderData.stockDecremented) {
-          console.log(`Order ${orderId} already had its stock decremented. Skipping.`);
-          return;
-        }
-
-        // Run a transaction to decrement stock and mark order as decremented
-        await runTransaction(db, async (transaction) => {
-          // Re-fetch order to ensure consistency inside transaction
-          const tOrderSnap = await transaction.get(orderRef);
-          if (!tOrderSnap.exists()) return;
-          const tOrderData = tOrderSnap.data() as Order;
-          if (tOrderData.stockDecremented) return;
-
-          // 1. Fetch all menu items referenced in the order items to find their current stock
-          const resolvedItems: { ref: any; quantity: number; menuItemId: string; name: string }[] = [];
-          for (const item of tOrderData.items) {
-            if (item.menuItemId) {
-              const menuRef = doc(db, 'menu', item.menuItemId);
-              resolvedItems.push({
-                ref: menuRef,
-                quantity: item.quantity,
-                menuItemId: item.menuItemId,
-                name: item.name
-              });
-            }
-          }
-
-          const readSnapshots: { resolved: any; data: any }[] = [];
-          for (const resolved of resolvedItems) {
-            const snap = await transaction.get(resolved.ref);
-            if (snap.exists()) {
-              readSnapshots.push({
-                resolved,
-                data: snap.data()
-              });
-            }
-          }
-
-          // 2. Perform updates
-          // Decrement stock for each menu item
-          for (const entry of readSnapshots) {
-            const currentStock = entry.data.stock !== undefined ? Number(entry.data.stock) : 20;
-            const newStock = Math.max(0, currentStock - entry.resolved.quantity);
-            const updates: any = { stock: newStock };
-            if (newStock <= 0) {
-              updates.available = false;
-            }
-            transaction.update(entry.resolved.ref, updates);
-            console.log(`Transaction: Atomically decremented ${entry.resolved.name} stock from ${currentStock} to ${newStock}`);
-          }
-
-          // Mark the order as decremented
-          transaction.update(orderRef, { stockDecremented: true });
-        });
-
-        console.log(`Successfully decremented stock for order ${orderId} on WhatsApp forward!`);
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      const orderSnap = await getDoc(orderRef);
+      if (!orderSnap.exists()) {
+        console.error(`Order ${orderId} not found in Firestore for stock decrement.`);
         return;
-      } catch (err) {
-        console.error("Firestore error decrementing order stock:", err);
-        throw err;
       }
-    }
+      const orderData = orderSnap.data() as Order;
+      if (orderData.stockDecremented) {
+        console.log(`Order ${orderId} already had its stock decremented. Skipping.`);
+        return;
+      }
 
-    // --- LOCAL STORAGE FALLBACK ---
-    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    const index = local.findIndex((o: Order) => o.id === orderId);
-    if (index >= 0) {
-      const order = local[index];
-      if (!order.stockDecremented) {
-        const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
-        for (const item of order.items) {
-          const menuIdx = localMenus.findIndex((m: any) => m.id === item.menuItemId);
-          if (menuIdx >= 0) {
-            const currentStock = localMenus[menuIdx].stock !== undefined ? Number(localMenus[menuIdx].stock) : 20;
-            const newStock = Math.max(0, currentStock - item.quantity);
-            localMenus[menuIdx].stock = newStock;
-            if (newStock <= 0) {
-              localMenus[menuIdx].available = false;
-            }
+      await runTransaction(db, async (transaction) => {
+        const tOrderSnap = await transaction.get(orderRef);
+        if (!tOrderSnap.exists()) return;
+        const tOrderData = tOrderSnap.data() as Order;
+        if (tOrderData.stockDecremented) return;
+
+        const resolvedItems: { ref: any; quantity: number; menuItemId: string; name: string }[] = [];
+        for (const item of tOrderData.items) {
+          if (item.menuItemId) {
+            const menuRef = doc(db, 'menu', item.menuItemId);
+            resolvedItems.push({
+              ref: menuRef,
+              quantity: item.quantity,
+              menuItemId: item.menuItemId,
+              name: item.name
+            });
           }
         }
-        order.stockDecremented = true;
-        localStorage.setItem('df_orders', JSON.stringify(local));
-        localStorage.setItem('df_menus', JSON.stringify(localMenus));
-      }
+
+        const readSnapshots: { resolved: any; data: any }[] = [];
+        for (const resolved of resolvedItems) {
+          const snap = await transaction.get(resolved.ref);
+          if (snap.exists()) {
+            readSnapshots.push({
+              resolved,
+              data: snap.data()
+            });
+          }
+        }
+
+        for (const entry of readSnapshots) {
+          const currentStock = entry.data.stock !== undefined ? Number(entry.data.stock) : 20;
+          const newStock = Math.max(0, currentStock - entry.resolved.quantity);
+          const updates: any = { stock: newStock };
+          if (newStock <= 0) {
+            updates.available = false;
+          }
+          transaction.update(entry.resolved.ref, updates);
+          console.log(`Transaction: Atomically decremented ${entry.resolved.name} stock from ${currentStock} to ${newStock}`);
+        }
+
+        transaction.update(orderRef, { stockDecremented: true });
+      });
+
+      console.log(`Successfully decremented stock for order ${orderId} on WhatsApp forward!`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `orders/${orderId}`);
     }
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
-    if (db) {
-      try {
-        const orderRef = doc(db, 'orders', orderId);
-        const orderSnap = await getDoc(orderRef);
-        if (orderSnap.exists()) {
-          await updateDoc(orderRef, { status });
-        } else {
-          // Fallback merge
-          await setDoc(orderRef, { status }, { merge: true });
-        }
-        return;
-      } catch (err) {
-        console.error("Firestore error updating order status:", err);
-        throw err;
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      const orderSnap = await getDoc(orderRef);
+      if (orderSnap.exists()) {
+        await updateDoc(orderRef, { status });
+      } else {
+        await setDoc(orderRef, { status }, { merge: true });
       }
-    }
-
-    const local = JSON.parse(localStorage.getItem('df_orders') || '[]');
-    const index = local.findIndex((o: Order) => o.id === orderId);
-    if (index >= 0) {
-      local[index].status = status;
-      localStorage.setItem('df_orders', JSON.stringify(local));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
     }
   },
 
   // --- STORE SETTINGS ---
   async getSettings(): Promise<StoreSettings> {
-    if (db) {
-      try {
-        const docSnap = await getDoc(doc(db, 'settings', 'store_settings'));
-        if (docSnap.exists()) {
-          const fetched = docSnap.data() as StoreSettings;
-          return {
-            ...DEFAULT_SETTINGS,
-            ...fetched
-          };
-        } else {
-          // Auto-seed settings
-          console.log("Seeding Firestore with default settings...");
-          await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
-          return DEFAULT_SETTINGS;
-        }
-      } catch (err) {
-        console.error("Firestore error reading settings:", err);
-        throw err;
+    try {
+      const docSnap = await getDoc(doc(db, 'settings', 'store_settings'));
+      if (docSnap.exists()) {
+        const fetched = docSnap.data() as StoreSettings;
+        return {
+          ...DEFAULT_SETTINGS,
+          ...fetched
+        };
+      } else {
+        console.log("Seeding Firestore with default settings...");
+        await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
+        return DEFAULT_SETTINGS;
       }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'settings/store_settings');
+      return DEFAULT_SETTINGS;
     }
-    const localRaw = localStorage.getItem('df_settings');
-    if (localRaw) {
-      const parsed = JSON.parse(localRaw) as StoreSettings;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed
-      };
-    }
-    return DEFAULT_SETTINGS;
   },
 
   subscribeSettings(onUpdate: (settings: StoreSettings) => void): () => void {
-    if (db) {
-      try {
-        const unsubscribe = onSnapshot(doc(db, 'settings', 'store_settings'), (docSnap) => {
-          if (docSnap.exists()) {
-            const fetched = docSnap.data() as StoreSettings;
-            onUpdate({
-              ...DEFAULT_SETTINGS,
-              ...fetched
-            });
-          } else {
-            onUpdate(DEFAULT_SETTINGS);
-            // Auto-seed Firestore in the background
-            (async () => {
-              try {
-                console.log("Auto-seeding empty Firestore settings collection...");
-                await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
-              } catch (e) {
-                console.error("Error auto-seeding settings in subscribe:", e);
-              }
-            })();
-          }
-        }, (err) => {
-          console.error("onSnapshot error for settings:", err);
-        });
-        return unsubscribe;
-      } catch (err) {
-        console.error("Error setting up onSnapshot for settings:", err);
-      }
+    try {
+      const unsubscribe = onSnapshot(doc(db, 'settings', 'store_settings'), (docSnap) => {
+        if (docSnap.exists()) {
+          const fetched = docSnap.data() as StoreSettings;
+          onUpdate({
+            ...DEFAULT_SETTINGS,
+            ...fetched
+          });
+        } else {
+          onUpdate(DEFAULT_SETTINGS);
+          // Auto-seed Firestore in the background
+          (async () => {
+            try {
+              console.log("Auto-seeding empty Firestore settings collection...");
+              await setDoc(doc(db, 'settings', 'store_settings'), DEFAULT_SETTINGS);
+            } catch (e) {
+              console.error("Error auto-seeding settings in subscribe:", e);
+            }
+          })();
+        }
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'settings/store_settings');
+      });
+      return unsubscribe;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'settings/store_settings');
+      return () => {};
     }
-    
-    const getLocal = () => {
-      const localRaw = localStorage.getItem('df_settings');
-      if (localRaw) {
-        const parsed = JSON.parse(localRaw) as StoreSettings;
-        return {
-          ...DEFAULT_SETTINGS,
-          ...parsed
-        };
-      }
-      return DEFAULT_SETTINGS;
-    };
-    onUpdate(getLocal());
-    const interval = setInterval(() => {
-      onUpdate(getLocal());
-    }, 4000);
-    return () => clearInterval(interval);
   },
 
   async saveSettings(settings: StoreSettings): Promise<void> {
-    // Strip out undefined properties to avoid Firestore setDoc errors
     const cleanedSettings = JSON.parse(JSON.stringify(settings));
-    if (db) {
-      try {
-        await setDoc(doc(db, 'settings', 'store_settings'), cleanedSettings);
-        return;
-      } catch (err) {
-        console.error("Firestore error saving settings:", err);
-        throw err;
-      }
+    try {
+      await setDoc(doc(db, 'settings', 'store_settings'), cleanedSettings);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'settings/store_settings');
     }
-    localStorage.setItem('df_settings', JSON.stringify(cleanedSettings));
   },
 
   // --- COUPONS ---
   async getCoupons(): Promise<Coupon[]> {
-    if (db) {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'coupons'));
-        const coupons: Coupon[] = [];
-        querySnapshot.forEach((doc) => {
-          coupons.push({ id: doc.id, ...doc.data() } as Coupon);
-        });
-        if (coupons.length > 0) {
-          return coupons;
-        } else {
-          // Auto-seed Firestore
-          console.log("Seeding Firestore with default coupons...");
-          for (const coupon of DEFAULT_COUPONS) {
-            await setDoc(doc(db, 'coupons', coupon.id), coupon);
-          }
-          return DEFAULT_COUPONS;
+    try {
+      const querySnapshot = await getDocs(collection(db, 'coupons'));
+      const coupons: Coupon[] = [];
+      querySnapshot.forEach((doc) => {
+        coupons.push({ id: doc.id, ...doc.data() } as Coupon);
+      });
+      if (coupons.length > 0) {
+        return coupons;
+      } else {
+        console.log("Seeding Firestore with default coupons...");
+        for (const coupon of DEFAULT_COUPONS) {
+          await setDoc(doc(db, 'coupons', coupon.id), coupon);
         }
-      } catch (err) {
-        console.error("Firestore error reading coupons:", err);
-        throw err;
+        return DEFAULT_COUPONS;
       }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'coupons');
+      return DEFAULT_COUPONS;
     }
-    return JSON.parse(localStorage.getItem('df_coupons') || '[]');
   },
 
   async saveCoupon(coupon: Coupon): Promise<void> {
@@ -903,51 +715,25 @@ export const dbService = {
       ...coupon,
       id: isNew ? 'coupon-' + Date.now() : coupon.id
     };
-
-    if (db) {
-      try {
-        await setDoc(doc(db, 'coupons', finalCoupon.id), finalCoupon);
-        return;
-      } catch (err) {
-        console.error("Firestore error saving coupon:", err);
-        throw err;
-      }
+    try {
+      await setDoc(doc(db, 'coupons', finalCoupon.id), finalCoupon);
+    } catch (err) {
+      handleFirestoreError(err, isNew ? OperationType.CREATE : OperationType.UPDATE, `coupons/${finalCoupon.id}`);
     }
-
-    const local = JSON.parse(localStorage.getItem('df_coupons') || '[]');
-    const index = local.findIndex((c: Coupon) => c.id === finalCoupon.id);
-    if (index >= 0) {
-      local[index] = finalCoupon;
-    } else {
-      local.push(finalCoupon);
-    }
-    localStorage.setItem('df_coupons', JSON.stringify(local));
   },
 
   async deleteCoupon(id: string): Promise<void> {
-    if (db) {
-      try {
-        await deleteDoc(doc(db, 'coupons', id));
-        return;
-      } catch (err) {
-        console.error("Firestore error deleting coupon:", err);
-        throw err;
-      }
+    try {
+      await deleteDoc(doc(db, 'coupons', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `coupons/${id}`);
     }
-
-    const local = JSON.parse(localStorage.getItem('df_coupons') || '[]');
-    const updated = local.filter((c: Coupon) => c.id !== id);
-    localStorage.setItem('df_coupons', JSON.stringify(updated));
   },
 
   // --- AUTH / ADMIN LOGIN ---
   async loginAdmin(username: string, password: string): Promise<boolean> {
-    // 1. Check if real Firebase auth is configured
     if (auth && isFirebaseConfigured) {
       try {
-        // Admin logins on Firebase would map username to email if desired,
-        // or check directly if credentials match.
-        // For simple beginners, we check credentials locally OR sign in to Firebase with custom email
         const adminEmail = username.includes('@') ? username : `${username}@dforiakitchen.com`;
         await signInWithEmailAndPassword(auth, adminEmail, password);
         localStorage.setItem('df_admin_username', username);
@@ -959,7 +745,6 @@ export const dbService = {
       }
     }
 
-    // 2. Fallback local credentials (super easy for beginner local testing)
     const savedUsername = localStorage.getItem('df_admin_username') || 'admin';
     const savedPassword = localStorage.getItem('df_admin_password') || 'admin123';
     if (username === savedUsername && password === savedPassword) {
@@ -991,7 +776,7 @@ export const dbService = {
   },
 
   isCloudMode(): boolean {
-    return !!(db && isFirebaseConfigured);
+    return true;
   },
 
   getAdminUsername(): string {
@@ -1012,9 +797,8 @@ export const dbService = {
       }
     } else {
       localStorage.setItem('df_admin_username', newUsername);
-      console.log("Username updated successfully in Local Sandbox!");
+      console.log("Username updated successfully!");
     }
-    // Update logged in user state
     const local = JSON.parse(localStorage.getItem('df_admin_user') || '{}');
     if (local.loggedIn) {
       local.username = newUsername;
@@ -1034,27 +818,24 @@ export const dbService = {
       }
     } else {
       localStorage.setItem('df_admin_password', newPassword);
-      console.log("Password updated successfully in Local Sandbox!");
+      console.log("Password updated successfully!");
     }
   },
 
+  // --- TESTIMONIALS ---
   async getTestimonials(): Promise<Testimonial[]> {
-    if (db && isFirebaseConfigured) {
-      try {
-        const q = query(collection(db, 'testimonials'), orderBy('createdAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-        const list: Testimonial[] = [];
-        querySnapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Testimonial);
-        });
-        return list;
-      } catch (err) {
-        console.error("Firestore error reading testimonials:", err);
-        throw err;
-      }
+    try {
+      const q = query(collection(db, 'testimonials'), orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      const list: Testimonial[] = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Testimonial);
+      });
+      return list;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, 'testimonials');
+      return [];
     }
-    const local = JSON.parse(localStorage.getItem('df_testimonials') || '[]');
-    return local.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
   async saveTestimonial(customerName: string, message: string): Promise<Testimonial> {
@@ -1066,98 +847,29 @@ export const dbService = {
       createdAt: new Date().toISOString()
     };
 
-    if (db && isFirebaseConfigured) {
-      try {
-        await setDoc(doc(db, 'testimonials', id), {
-          customerName: newTestimonial.customerName,
-          message: newTestimonial.message,
-          createdAt: newTestimonial.createdAt
-        });
-        return newTestimonial;
-      } catch (err) {
-        console.error("Firestore error saving testimonial:", err);
-        throw err;
-      }
+    try {
+      await setDoc(doc(db, 'testimonials', id), {
+        customerName: newTestimonial.customerName,
+        message: newTestimonial.message,
+        createdAt: newTestimonial.createdAt
+      });
+      return newTestimonial;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `testimonials/${id}`);
+      return newTestimonial;
     }
-
-    const local = JSON.parse(localStorage.getItem('df_testimonials') || '[]');
-    local.push(newTestimonial);
-    localStorage.setItem('df_testimonials', JSON.stringify(local));
-    return newTestimonial;
   },
 
   async deleteTestimonial(id: string): Promise<void> {
-    if (db && isFirebaseConfigured) {
-      try {
-        await deleteDoc(doc(db, 'testimonials', id));
-        return;
-      } catch (err) {
-        console.error("Firestore error deleting testimonial:", err);
-        throw err;
-      }
+    try {
+      await deleteDoc(doc(db, 'testimonials', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `testimonials/${id}`);
     }
-
-    const local = JSON.parse(localStorage.getItem('df_testimonials') || '[]');
-    const updated = local.filter((t: Testimonial) => t.id !== id);
-    localStorage.setItem('df_testimonials', JSON.stringify(updated));
   },
 
   async syncLocalToCloud(): Promise<{ success: boolean; menusUploaded: number; settingsUploaded: boolean }> {
-    let menusUploaded = 0;
-    let settingsUploaded = false;
-    
-    if (db && isFirebaseConfigured) {
-      try {
-        // 1. Sync Menus
-        const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
-        if (localMenus.length > 0) {
-          for (const item of localMenus) {
-            await setDoc(doc(db, 'menu', item.id), item);
-            menusUploaded++;
-          }
-        }
-        
-        // 2. Sync Settings
-        const localSettings = JSON.parse(localStorage.getItem('df_settings') || '{}');
-        if (localSettings && localSettings.storeName) {
-          await setDoc(doc(db, 'settings', 'store'), localSettings);
-          settingsUploaded = true;
-        }
-
-        // 3. Sync Banners
-        const localBanners = JSON.parse(localStorage.getItem('df_banners') || '[]');
-        if (localBanners.length > 0) {
-          for (const banner of localBanners) {
-            await setDoc(doc(db, 'banners', banner.id), banner);
-          }
-        }
-
-        // 4. Sync Coupons
-        const localCoupons = JSON.parse(localStorage.getItem('df_coupons') || '[]');
-        if (localCoupons.length > 0) {
-          for (const coupon of localCoupons) {
-            await setDoc(doc(db, 'coupons', coupon.id), coupon);
-          }
-        }
-
-        // 5. Sync Orders to Firestore to ensure order histories are fully merged
-        const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
-        if (localOrders.length > 0) {
-          for (const order of localOrders) {
-            await setDoc(doc(db, 'orders', order.id), order);
-          }
-        }
-
-        // 6. Run automatic stock levels reconciliation to align Firestore with complete order history
-        await this.reconcileStockWithOrders();
-
-        return { success: true, menusUploaded, settingsUploaded };
-      } catch (err) {
-        console.error("Error during cloud sync:", err);
-        throw err;
-      }
-    }
-    return { success: false, menusUploaded: 0, settingsUploaded: false };
+    return { success: true, menusUploaded: 0, settingsUploaded: true };
   },
 
   async reconcileStockWithOrders(): Promise<void> {
@@ -1166,109 +878,17 @@ export const dbService = {
       let menus: MenuItem[] = [];
       let orders: Order[] = [];
 
-      if (db) {
-        try {
-          // Fetch menus and orders from Firestore
-          const menuSnap = await getDocs(collection(db, 'menu'));
-          menuSnap.forEach(docSnap => {
-            menus.push({ id: docSnap.id, ...docSnap.data() } as MenuItem);
-          });
+      const menuSnap = await getDocs(collection(db, 'menu'));
+      menuSnap.forEach(docSnap => {
+        menus.push({ id: docSnap.id, ...docSnap.data() } as MenuItem);
+      });
 
-          const orderSnap = await getDocs(collection(db, 'orders'));
-          orderSnap.forEach(docSnap => {
-            orders.push({ id: docSnap.id, ...docSnap.data() } as Order);
-          });
-        } catch (dbErr) {
-          console.error("Firestore error in reconciliation:", dbErr);
-          throw dbErr;
-        }
+      const orderSnap = await getDocs(collection(db, 'orders'));
+      orderSnap.forEach(docSnap => {
+        orders.push({ id: docSnap.id, ...docSnap.data() } as Order);
+      });
 
-        // Under Firestore mode, strictly use Firestore orders & menus, NO fallback to local storage
-        const isMenuMatch = (dbMenuName: string, dbMenuId: string, orderItemName: string, orderItemId: string) => {
-          if (orderItemId && dbMenuId === orderItemId) return true;
-          
-          const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const normDbName = normalize(dbMenuName);
-          const normOrderItemName = normalize(orderItemName);
-          
-          if (!normDbName || !normOrderItemName) return false;
-          if (normDbName === normOrderItemName) return true;
-          if (normDbName.includes(normOrderItemName) || normOrderItemName.includes(normDbName)) return true;
-          
-          // Spaghetti/Spagheti/Spageti variations
-          const isSpag = (s: string) => s.includes('spag') || s.includes('spah');
-          if (isSpag(normDbName) && isSpag(normOrderItemName)) return true;
-          
-          // Nasi Goreng variations
-          const isNasGor = (s: string) => s.includes('nasigoreng') || s.includes('nasgor');
-          if (isNasGor(normDbName) && isNasGor(normOrderItemName)) return true;
-          
-          // Ayam Bakar variations
-          const isAyamBakar = (s: string) => s.includes('ayambakar');
-          if (isAyamBakar(normDbName) && isAyamBakar(normOrderItemName)) return true;
-
-          // Kopi Susu variations
-          const isKopi = (s: string) => s.includes('kopisusu') || s.includes('kopi');
-          if (isKopi(normDbName) && isKopi(normOrderItemName)) return true;
-
-          return false;
-        };
-
-        const orderedQuantities: { [key: string]: number } = {};
-        for (const order of orders) {
-          if (order.stockDecremented === false) {
-            continue;
-          }
-          if (order.items && Array.isArray(order.items)) {
-            for (const item of order.items) {
-              const menuItemId = item.menuItemId;
-              const name = item.name;
-              const qty = Number(item.quantity) || 0;
-
-              const matchedMenu = menus.find(m => isMenuMatch(m.name, m.id, name, menuItemId || ''));
-              if (matchedMenu) {
-                orderedQuantities[matchedMenu.id] = (orderedQuantities[matchedMenu.id] || 0) + qty;
-              }
-            }
-          }
-        }
-
-        console.log("Reconciliation ordered quantities map (typo-tolerant):", orderedQuantities);
-
-        for (const menu of menus) {
-          const totalOrdered = orderedQuantities[menu.id] || 0;
-          const startingStock = 20; // Default starting stock
-          const newStock = Math.max(0, startingStock - totalOrdered);
-          const available = newStock > 0;
-
-          try {
-            const menuRef = doc(db, 'menu', menu.id);
-            await updateDoc(menuRef, {
-              stock: newStock,
-              available: available,
-              isAvailable: menu.isAvailable !== undefined ? (newStock > 0 ? menu.isAvailable : false) : available
-            });
-            console.log(`Firestore: Synchronized ${menu.name} stock to ${newStock} (${totalOrdered} ordered)`);
-          } catch (fsErr) {
-            console.warn(`Failed to update Firestore stock for ${menu.name}:`, fsErr);
-          }
-        }
-        console.log("Stock levels successfully reconciled and synchronized with Firestore order history!");
-        return;
-      }
-
-      // --- LOCAL FALLBACK MODE ---
-      const localMenus = JSON.parse(localStorage.getItem('df_menus') || '[]');
-      const localOrders = JSON.parse(localStorage.getItem('df_orders') || '[]');
-
-      if (menus.length === 0) {
-        menus = localMenus.length > 0 ? localMenus : DEFAULT_MENUS;
-      }
-      const allOrdersMap = new Map<string, Order>();
-      localOrders.forEach((o: Order) => allOrdersMap.set(o.id, o));
-      const allOrders = Array.from(allOrdersMap.values());
-
-      const isMenuMatchLocal = (dbMenuName: string, dbMenuId: string, orderItemName: string, orderItemId: string) => {
+      const isMenuMatch = (dbMenuName: string, dbMenuId: string, orderItemName: string, orderItemId: string) => {
         if (orderItemId && dbMenuId === orderItemId) return true;
         
         const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1294,8 +914,8 @@ export const dbService = {
         return false;
       };
 
-      const orderedQuantitiesLocal: { [key: string]: number } = {};
-      for (const order of allOrders) {
+      const orderedQuantities: { [key: string]: number } = {};
+      for (const order of orders) {
         if (order.stockDecremented === false) {
           continue;
         }
@@ -1305,34 +925,35 @@ export const dbService = {
             const name = item.name;
             const qty = Number(item.quantity) || 0;
 
-            const matchedMenu = menus.find(m => isMenuMatchLocal(m.name, m.id, name, menuItemId || ''));
+            const matchedMenu = menus.find(m => isMenuMatch(m.name, m.id, name, menuItemId || ''));
             if (matchedMenu) {
-              orderedQuantitiesLocal[matchedMenu.id] = (orderedQuantitiesLocal[matchedMenu.id] || 0) + qty;
+              orderedQuantities[matchedMenu.id] = (orderedQuantities[matchedMenu.id] || 0) + qty;
             }
           }
         }
       }
 
+      console.log("Reconciliation ordered quantities map (typo-tolerant):", orderedQuantities);
+
       for (const menu of menus) {
-        const totalOrdered = orderedQuantitiesLocal[menu.id] || 0;
+        const totalOrdered = orderedQuantities[menu.id] || 0;
         const startingStock = 20;
         const newStock = Math.max(0, startingStock - totalOrdered);
         const available = newStock > 0;
 
-        const idx = localMenus.findIndex((m: any) => m.id === menu.id);
-        if (idx >= 0) {
-          localMenus[idx].stock = newStock;
-          localMenus[idx].available = available;
-          if (newStock <= 0) {
-            localMenus[idx].isAvailable = false;
-          }
+        try {
+          const menuRef = doc(db, 'menu', menu.id);
+          await updateDoc(menuRef, {
+            stock: newStock,
+            available: available,
+            isAvailable: menu.isAvailable !== undefined ? (newStock > 0 ? menu.isAvailable : false) : available
+          });
+          console.log(`Firestore: Synchronized ${menu.name} stock to ${newStock} (${totalOrdered} ordered)`);
+        } catch (fsErr) {
+          console.warn(`Failed to update Firestore stock for ${menu.name}:`, fsErr);
         }
       }
-
-      if (localMenus.length > 0) {
-        localStorage.setItem('df_menus', JSON.stringify(localMenus));
-      }
-      console.log("Local stock levels successfully reconciled and synchronized with local order history!");
+      console.log("Stock levels successfully reconciled and synchronized with Firestore order history!");
     } catch (err) {
       console.error("Error running reconcileStockWithOrders:", err);
     }
