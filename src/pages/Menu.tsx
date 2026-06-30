@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Search, SlidersHorizontal, Compass, Star, ArrowDownAZ, ArrowUp10 } from 'lucide-react';
+import { Search, SlidersHorizontal, Compass, Star, ArrowDownAZ, ArrowUp10, X, ShoppingBag } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { dbService } from '../lib/firebase';
 import { MenuItem } from '../types';
 import MenuCard from '../components/MenuCard';
@@ -21,6 +22,7 @@ export default function Menu({ onAddCart }: MenuProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('default');
   const [loading, setLoading] = useState(true);
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
 
   useEffect(() => {
     const unsubscribe = dbService.subscribeMenus((fetched) => {
@@ -133,10 +135,63 @@ export default function Menu({ onAddCart }: MenuProps) {
       ) : (
         <div className="grid grid-cols-2 gap-3 animate-fade-in">
           {sortedMenus.map((item) => (
-            <MenuCard key={item.id} item={item} onAdd={onAddCart} />
+            <MenuCard 
+              key={item.id} 
+              item={item} 
+              onAdd={onAddCart} 
+              onPreview={setSelectedItem}
+            />
           ))}
         </div>
       )}
+
+      <AnimatePresence>
+        {selectedItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedItem(null)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-md cursor-pointer"
+            />
+
+            {/* Modal Card */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="relative z-10 max-w-[95vw] max-h-[85vh] flex flex-col items-center justify-center"
+            >
+              {/* Close Button */}
+              <button
+                id="btn-close-preview"
+                onClick={() => setSelectedItem(null)}
+                className="absolute -top-12 right-0 bg-white/10 hover:bg-white/20 backdrop-blur-md p-2 rounded-full border border-white/20 shadow-lg hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer text-white flex items-center justify-center"
+              >
+                <X size={20} />
+              </button>
+
+              {/* Large Image Showcase */}
+              <div className="w-full max-h-[75vh] bg-transparent rounded-2xl overflow-hidden flex items-center justify-center shadow-2xl relative border border-white/10">
+                <img
+                  src={selectedItem.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=1000'}
+                  alt={selectedItem.name}
+                  className="max-w-full max-h-[75vh] object-contain rounded-2xl animate-fade-in"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              {/* Floating Menu Name Label */}
+              <div className="mt-4 bg-black/50 backdrop-blur-md border border-white/10 text-white text-sm font-semibold px-4.5 py-2 rounded-full shadow-lg max-w-xs text-center truncate">
+                {selectedItem.name}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

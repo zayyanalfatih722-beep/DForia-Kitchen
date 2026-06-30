@@ -10,10 +10,11 @@ import { Star, Plus, ShieldCheck } from 'lucide-react';
 interface MenuCardProps {
   item: MenuItem;
   onAdd: (item: MenuItem) => void;
+  onPreview?: (item: MenuItem) => void;
   key?: React.Key;
 }
 
-export default function MenuCard({ item, onAdd }: MenuCardProps) {
+export default function MenuCard({ item, onAdd, onPreview }: MenuCardProps) {
   const formattedPrice = new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -41,7 +42,10 @@ export default function MenuCard({ item, onAdd }: MenuCardProps) {
       )}
 
       {/* Item Image Container - Aspect Ratio 4/3 */}
-      <div className="w-full aspect-[4/3] bg-[#F8F6F2] p-2 rounded-t-[20px] relative overflow-hidden flex items-center justify-center">
+      <div 
+        onClick={() => onPreview?.(item)}
+        className="w-full aspect-[4/3] bg-[#F8F6F2] p-2 rounded-t-[20px] relative overflow-hidden flex items-center justify-center cursor-pointer group"
+      >
         {/* Shimmer loading skeleton */}
         {!isImageLoaded && (
           <div className="absolute inset-0 bg-skeleton-shimmer z-0" />
@@ -51,7 +55,7 @@ export default function MenuCard({ item, onAdd }: MenuCardProps) {
           src={item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=300'}
           alt={item.name}
           onLoad={() => setIsImageLoaded(true)}
-          className={`w-full h-full object-contain object-center transition-all duration-500 hover:scale-105 ${
+          className={`w-full h-full object-contain object-center transition-all duration-500 group-hover:scale-108 ${
             isImageLoaded ? 'opacity-100' : 'opacity-0'
           }`}
           referrerPolicy="no-referrer"
@@ -73,7 +77,10 @@ export default function MenuCard({ item, onAdd }: MenuCardProps) {
       </div>
 
       {/* Item Details */}
-      <div className="p-3.5 flex-1 flex flex-col">
+      <div 
+        onClick={() => onPreview?.(item)}
+        className="p-3.5 flex-1 flex flex-col cursor-pointer hover:bg-cream/[0.15] transition-colors duration-200"
+      >
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">{item.category}</span>
           <div className="flex items-center space-x-0.5 text-amber-500">
