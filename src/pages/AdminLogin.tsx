@@ -58,25 +58,27 @@ export default function AdminLogin() {
     }
   };
 
-  const handleResetPassword = async () => {
-    try {
-      await dbService.changeAdminUsername('admin');
-      await dbService.changeAdminPassword('admin123');
-    } catch (err) {
-      console.warn("Failed to reset credentials on Firestore, resetting locally:", err);
-    }
+  const [resetLoading, setResetLoading] = useState(false);
 
-    // Reset local fallback credentials
-    localStorage.setItem('df_admin_username', 'admin');
-    localStorage.setItem('df_admin_password', 'admin123');
-    
-    // Auto-populate form
-    setUsername('admin');
-    setPassword('admin123');
-    
+  const handleResetPassword = async () => {
     setError('');
-    setRecoverySuccess(true);
-    setIsRecoveryMode(false);
+    setResetLoading(true);
+    try {
+      const success = await dbService.resetAdminPasswordSecurely();
+      if (success) {
+        setRecoverySuccess(true);
+        setIsRecoveryMode(false);
+      } else {
+        setError('Gagal mengirim password sementara. Mohon hubungi administrator.');
+        setIsRecoveryMode(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Terjadi kesalahan saat melakukan pemulihan kata sandi.');
+      setIsRecoveryMode(false);
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   if (isRecoveryMode) {
@@ -90,19 +92,15 @@ export default function AdminLogin() {
 
           {/* Title */}
           <h1 className="font-serif text-xl font-bold text-primary mb-1">Pemulihan Akun</h1>
-          <p className="text-xs text-gray-400 mb-6 font-medium">Reset password ke setelan bawaan</p>
+          <p className="text-xs text-gray-400 mb-6 font-medium font-sans">Kirim Kata Sandi Sementara</p>
 
-          <div className="bg-amber-50 text-amber-700 text-xs p-4 rounded-xl border border-amber-200/50 text-left mb-6 space-y-2 leading-relaxed">
-            <p className="font-semibold">Apakah Anda lupa password lama Anda?</p>
-            <p className="text-[11px] text-amber-700/90">
-              Anda dapat mengatur ulang kata sandi admin Anda kembali ke bawaan pabrik:
+          <div className="bg-amber-50 text-amber-700 text-xs p-4 rounded-xl border border-amber-200/50 text-left mb-6 space-y-2 leading-relaxed font-sans">
+            <p className="font-semibold">Apakah Anda lupa password admin Anda?</p>
+            <p className="text-[11px] text-amber-700/90 leading-relaxed">
+              Anda dapat meminta sistem mengirimkan kata sandi sementara yang acak ke nomor WhatsApp Admin yang telah dikonfigurasi di pengaturan toko.
             </p>
-            <div className="bg-white/80 p-2.5 rounded-lg border border-amber-200/50 font-mono text-xs text-amber-800 space-y-0.5">
-              <div>• Username: <strong>admin</strong></div>
-              <div>• Password: <strong>admin123</strong></div>
-            </div>
             <p className="text-[10px] text-amber-600/80 italic">
-              *Setelah masuk, Anda bisa mengubahnya kembali lewat menu Pengaturan Admin.
+              *Kata sandi sementara ini hanya akan berlaku selama 10 menit atau hingga berhasil digunakan sekali untuk masuk.
             </p>
           </div>
 
@@ -110,15 +108,21 @@ export default function AdminLogin() {
             <button
               id="btn-confirm-reset"
               type="button"
+              disabled={resetLoading}
               onClick={handleResetPassword}
-              className="w-full bg-primary hover:bg-primary-dark text-white text-xs font-semibold py-3.5 rounded-xl shadow-soft transition-all cursor-pointer"
+              className="w-full bg-primary hover:bg-primary-dark disabled:bg-gray-400 text-white text-xs font-semibold py-3.5 rounded-xl shadow-soft transition-all cursor-pointer flex items-center justify-center"
             >
-              Setel Ulang ke Password Bawaan
+              {resetLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                'Kirim Password Sementara via WhatsApp'
+              )}
             </button>
 
             <button
               id="btn-cancel-reset"
               type="button"
+              disabled={resetLoading}
               onClick={() => setIsRecoveryMode(false)}
               className="w-full bg-cream hover:bg-cream-dark/30 text-primary border border-cream-dark/60 text-xs font-semibold py-3 rounded-xl transition-all cursor-pointer"
             >
@@ -146,12 +150,10 @@ export default function AdminLogin() {
           <div id="recovery-success-badge" className="bg-emerald-50 text-emerald-600 text-xs px-3.5 py-3 rounded-xl border border-emerald-200/50 flex flex-col text-left mb-5">
             <div className="flex items-center space-x-2 font-bold mb-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-              <span>Sandi Berhasil Direset!</span>
+              <span>Sandi Berhasil Dikirim!</span>
             </div>
             <p className="text-[11px] text-emerald-600/90 leading-relaxed font-medium">
-              Username & Password disetel kembali ke bawaan: <br/>
-              <strong>admin</strong> / <strong>admin123</strong>. <br/>
-              Kolom isian sudah otomatis terisi, silakan klik tombol <strong>Masuk</strong>.
+              Password sementara telah dikirim ke WhatsApp Admin. Silakan gunakan password tersebut untuk login, kemudian segera buat password baru.
             </p>
           </div>
         )}

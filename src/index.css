@@ -18,8 +18,12 @@
 }
 
 /* Custom styles for professional scrollbar and background */
-html, body, #root {
-  min-height: 100dvh;
+html,
+body,
+#root {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
   margin: 0;
   padding: 0;
 }
@@ -28,7 +32,12 @@ body {
   background-color: var(--color-cream);
   color: #2D2522;
   font-family: var(--font-sans);
-  overflow-x: hidden;
+}
+
+main {
+  display: block;
+  height: auto;
+  overflow: visible;
 }
 
 h1, h2, h3, .font-serif {

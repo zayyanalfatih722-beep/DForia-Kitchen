@@ -7,78 +7,36 @@ import { createClient } from '@supabase/supabase-js';
 import { MenuItem, Order, Banner, StoreSettings, Coupon, OrderStatus, Testimonial } from '../types';
 
 // ==========================================
-// ENVIRONMENT VARIABLE CONFIGURATION & LAZY INITIALIZATION
+// SUPABASE CONFIGURATION (HARDCODED DIRECTLY IN THE PROJECT)
 // ==========================================
 
-function cleanEnvValue(val: any): string {
-  if (typeof val !== 'string') return '';
-  let cleaned = val.trim();
-  // Remove wrapping single/double quotes if present
-  if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
-    cleaned = cleaned.slice(1, -1).trim();
-  }
-  return cleaned;
+export const supabaseUrl: string = "https://kjfipyaoxtjccxjdarmg.supabase.co";
+export const supabaseAnonKey: string = "sb_publishable_e3Lp4J17iJtfLpyznGxhUQ_pNRle9L7";
+
+export const isConfigured = 
+  supabaseUrl && 
+  supabaseUrl !== "https://PROJECT-ID.supabase.co" && 
+  supabaseUrl.trim() !== "" &&
+  supabaseAnonKey && 
+  supabaseAnonKey !== "PASTE_ANON_PUBLIC_KEY" && 
+  supabaseAnonKey.trim() !== "";
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
+
+if (isConfigured) {
+  console.log("Supabase Client initialized successfully! Connected to:", supabaseUrl);
+} else {
+  console.warn("Supabase is NOT configured. Please paste your Supabase URL and Anon Key directly in /src/lib/supabase.ts to sync across all devices!");
 }
-
-function getSavedValue(key: string, envVal: string): string {
-  try {
-    const saved = localStorage.getItem(key) || sessionStorage.getItem(key);
-    if (saved) return cleanEnvValue(saved);
-  } catch (e) {}
-  return cleanEnvValue(envVal);
-}
-
-export const supabaseUrl = getSavedValue('df_supabase_url', import.meta.env.VITE_SUPABASE_URL);
-export const supabaseAnonKey = getSavedValue('df_supabase_anon_key', import.meta.env.VITE_SUPABASE_ANON_KEY);
-
-function validateConfig(url: string, key: string): boolean {
-  const u = (url || '').trim();
-  const k = (key || '').trim();
-  if (!u || u === 'your_supabase_project_url' || !u.startsWith('http') || u.length > 512) {
-    return false;
-  }
-  if (!k || k === 'your_supabase_anon_public_key' || k.startsWith('data:') || k.length > 2000 || k.includes(';base64,')) {
-    return false;
-  }
-  return true;
-}
-
-export let isConfigured = validateConfig(supabaseUrl, supabaseAnonKey);
 
 function handleSupabaseError(actionName: string, error: any) {
   if (!error) return;
-  const errMsg = error.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
-  const isInvalidKey = errMsg.includes('Invalid API key') || 
-                       errMsg.includes('invalid api key') || 
-                       errMsg.includes('anon or service_role') ||
-                       errMsg.includes('JWT');
-
-  if (isInvalidKey) {
-    if (isConfigured) {
-      isConfigured = false;
-      console.warn(`[Supabase] API Key tidak valid (${errMsg}). Mengaktifkan Offline Mode secara otomatis.`);
-    }
-  } else {
-    console.warn(`[Supabase] Gagal pada ${actionName}:`, error);
-  }
-}
-
-export let supabase: any = null;
-
-if (isConfigured) {
-  try {
-    supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    });
-    console.log("Supabase Client initialized successfully! Connected to:", supabaseUrl);
-  } catch (error) {
-    console.error("Failed to initialize Supabase Client:", error);
-  }
-} else {
-  console.warn("Supabase is NOT configured. Please provide VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your env settings or Admin Panel.");
+  console.warn(`[Supabase] Gagal pada ${actionName}:`, error);
 }
 
 // ==========================================
@@ -722,9 +680,36 @@ export const dbService = {
   },
 
   async addOrder(order: Order): Promise<void> {
-    const orderWithFlag = { ...order, stockDecremented: false };
+    const orderWithFlag = { ...order, stockDecremented: true }; // Stock is decremented inside RPC or offline immediately
 
     if (!isConfigured) {
+      // Local / Offline fallback (We still decrement stock locally for immediate client feedback!)
+      const cachedMenus = getCached('df_cached_menus', DEFAULT_MENUS);
+      
+      // Validate stock locally
+      for (const item of order.items) {
+        const found = cachedMenus.find((m: any) => m.id === item.menuItemId);
+        if (found && found.stock < item.quantity) {
+          throw new Error(`Stok "${item.name}" tidak mencukupi (Tersisa: ${found.stock}).`);
+        }
+      }
+
+      // Decrement stock locally
+      const updatedMenus = cachedMenus.map((m: any) => {
+        const item = order.items.find(it => it.menuItemId === m.id);
+        if (item) {
+          const newStock = Math.max(0, m.stock - item.quantity);
+          return {
+            ...m,
+            stock: newStock,
+            available: newStock > 0 && m.isAvailable !== false,
+            isAvailable: newStock > 0 && m.isAvailable !== false
+          };
+        }
+        return m;
+      });
+      setCached('df_cached_menus', updatedMenus);
+
       const cached = getCached('df_cached_orders', DEFAULT_ORDERS);
       const updated = [orderWithFlag, ...cached.filter((o: any) => o.id !== order.id)];
       setCached('df_cached_orders', updated);
@@ -732,79 +717,120 @@ export const dbService = {
     }
 
     try {
-      // 1. Ensure Customer exists in customers table
-      let finalCustomerId = orderWithFlag.customerId || '';
-      if (orderWithFlag.customerName) {
-        if (!finalCustomerId && orderWithFlag.phoneNumber) {
-          finalCustomerId = 'cust-' + orderWithFlag.phoneNumber.replace(/[^0-9]/g, '');
-        }
-        if (!finalCustomerId) {
-          finalCustomerId = 'cust-' + Date.now();
-        }
-        orderWithFlag.customerId = finalCustomerId;
+      // Panggil RPC aman di Supabase (Transaksi tingkat database, aman dari race conditions!)
+      const { data, error } = await supabase.rpc('create_order_secure', {
+        p_order_id: order.id,
+        p_customer_id: order.customerId || null,
+        p_customer_name: order.customerName,
+        p_table_number: order.tableNumber || '',
+        p_phone_number: order.phoneNumber || '',
+        p_notes: order.notes || '',
+        p_items: order.items,
+        p_total_amount: order.totalAmount,
+        p_payment_method: order.paymentMethod,
+        p_status: order.status,
+        p_created_at: order.createdAt
+      });
 
-        try {
-          await supabase
-            .from('customers')
-            .upsert({
-              id: finalCustomerId,
-              name: orderWithFlag.customerName,
-              phone: orderWithFlag.phoneNumber || ''
-            });
-        } catch (custErr) {
-          console.error("Gagal menyimpan customer ke Supabase:", custErr);
+      if (error) {
+        // Jika RPC belum ditambahkan di Supabase, fallback menggunakan alur biasa
+        if (error.code === 'PGRST202' || error.message?.includes('does not exist')) {
+          console.warn("RPC 'create_order_secure' tidak ditemukan di Supabase. Menggunakan alur fallback standard.");
+          await this.addOrderFallback(order);
+          return;
         }
+        throw error;
       }
 
-      // 2. Save order to orders table
-      const { error } = await supabase
-        .from('orders')
-        .upsert({
-          id: orderWithFlag.id,
-          customerId: orderWithFlag.customerId || null,
-          customerName: orderWithFlag.customerName,
-          tableNumber: orderWithFlag.tableNumber,
-          phoneNumber: orderWithFlag.phoneNumber,
-          notes: orderWithFlag.notes,
-          items: orderWithFlag.items, // JSONB handles objects directly
-          total_amount: orderWithFlag.totalAmount,
-          payment_method: orderWithFlag.paymentMethod,
-          status: orderWithFlag.status,
-          created_at: orderWithFlag.createdAt,
-          stockDecremented: orderWithFlag.stockDecremented
-        });
-
-      if (error) throw error;
-
-      // 3. Save order items to order_items table for relational integrity
-      if (orderWithFlag.items && orderWithFlag.items.length > 0) {
-        try {
-          for (let i = 0; i < orderWithFlag.items.length; i++) {
-            const item = orderWithFlag.items[i];
-            await supabase
-              .from('order_items')
-              .upsert({
-                id: `${orderWithFlag.id}-item-${i}`,
-                order_id: orderWithFlag.id,
-                menu_item_id: item.menuItemId,
-                name: item.name,
-                price: item.price,
-                quantity: item.quantity,
-                notes: item.notes || '',
-                image: item.image || ''
-              });
-          }
-        } catch (itemErr) {
-          console.error("Gagal menyimpan order_items ke Supabase:", itemErr);
-        }
+      if (data && data.success === false) {
+        throw new Error(data.message || 'Gagal menyimpan pesanan.');
       }
 
       const cached = getCached('df_cached_orders', DEFAULT_ORDERS);
       const updated = [orderWithFlag, ...cached.filter((o: any) => o.id !== order.id)];
       setCached('df_cached_orders', updated);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Gagal menyimpan order ke Supabase:", err);
+      throw new Error(err.message || "Gagal menyimpan pesanan.");
     }
+  },
+
+  async addOrderFallback(order: Order): Promise<void> {
+    const orderWithFlag = { ...order, stockDecremented: false };
+
+    // 1. Simpan Customer
+    let finalCustomerId = orderWithFlag.customerId || '';
+    if (orderWithFlag.customerName) {
+      if (!finalCustomerId && orderWithFlag.phoneNumber) {
+        finalCustomerId = 'cust-' + orderWithFlag.phoneNumber.replace(/[^0-9]/g, '');
+      }
+      if (!finalCustomerId) {
+        finalCustomerId = 'cust-' + Date.now();
+      }
+      orderWithFlag.customerId = finalCustomerId;
+
+      try {
+        await supabase
+          .from('customers')
+          .upsert({
+            id: finalCustomerId,
+            name: orderWithFlag.customerName,
+            phone: orderWithFlag.phoneNumber || ''
+          });
+      } catch (custErr) {
+        console.error("Gagal menyimpan customer ke Supabase:", custErr);
+      }
+    }
+
+    // 2. Simpan Order
+    const { error } = await supabase
+      .from('orders')
+      .upsert({
+        id: orderWithFlag.id,
+        customerId: orderWithFlag.customerId || null,
+        customerName: orderWithFlag.customerName,
+        tableNumber: orderWithFlag.tableNumber,
+        phoneNumber: orderWithFlag.phoneNumber,
+        notes: orderWithFlag.notes,
+        items: orderWithFlag.items,
+        total_amount: orderWithFlag.totalAmount,
+        payment_method: orderWithFlag.paymentMethod,
+        status: orderWithFlag.status,
+        created_at: orderWithFlag.createdAt,
+        stockDecremented: orderWithFlag.stockDecremented
+      });
+
+    if (error) throw error;
+
+    // 3. Simpan Order Items
+    if (orderWithFlag.items && orderWithFlag.items.length > 0) {
+      try {
+        for (let i = 0; i < orderWithFlag.items.length; i++) {
+          const item = orderWithFlag.items[i];
+          await supabase
+            .from('order_items')
+            .upsert({
+              id: `${orderWithFlag.id}-item-${i}`,
+              order_id: orderWithFlag.id,
+              menu_item_id: item.menuItemId,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+              notes: item.notes || '',
+              image: item.image || ''
+            });
+        }
+      } catch (itemErr) {
+        console.error("Gagal menyimpan order_items ke Supabase:", itemErr);
+      }
+    }
+
+    // 4. Jalankan manual stock decrement sebagai fallback
+    await this.decrementOrderStock(orderWithFlag.id);
+
+    const cached = getCached('df_cached_orders', DEFAULT_ORDERS);
+    const updated = [{ ...orderWithFlag, stockDecremented: true }, ...cached.filter((o: any) => o.id !== order.id)];
+    setCached('df_cached_orders', updated);
   },
 
   async decrementOrderStock(orderId: string): Promise<void> {
@@ -851,7 +877,8 @@ export const dbService = {
               .from('menu')
               .update({ 
                 stock: newStock,
-                available: newStock > 0 && mData.isAvailable !== false
+                available: newStock > 0 && mData.isAvailable !== false,
+                isAvailable: newStock > 0 && mData.isAvailable !== false
               })
               .eq('id', item.menuItemId);
             console.log(`Stok menu ${item.name} berhasil diubah dari ${currentStock} menjadi ${newStock}`);
@@ -1016,6 +1043,31 @@ export const dbService = {
     }
   },
 
+  subscribeCoupons(onUpdate: (coupons: Coupon[]) => void): () => void {
+    if (!isConfigured) {
+      onUpdate(getCached('df_cached_coupons', DEFAULT_COUPONS));
+      return () => {};
+    }
+
+    this.getCoupons().then(onUpdate);
+
+    const channelId = `coupons-changes-${Math.random().toString(36).substring(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'promos' },
+        () => {
+          this.getCoupons().then(onUpdate);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
+
   async saveCoupon(coupon: Coupon): Promise<void> {
     const isNew = !coupon.id;
     const finalCoupon = {
@@ -1078,16 +1130,44 @@ export const dbService = {
   },
 
   // --- AUTH / ADMIN LOGIN ---
+  mustChangeAdminPassword(): boolean {
+    return localStorage.getItem('df_must_change_password') === 'true';
+  },
+
   async loginAdmin(username: string, password: string): Promise<boolean> {
     if (!isConfigured) {
       // Fallback local auth
       const savedUsername = localStorage.getItem('df_admin_username') || 'admin';
       const savedPassword = localStorage.getItem('df_admin_password') || 'admin123';
+      
+      // Normal login check
       if (username === savedUsername && password === savedPassword) {
         localStorage.setItem('df_admin_username', username);
         localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+        localStorage.removeItem('df_must_change_password');
         return true;
       }
+
+      // Local temp password check
+      const localTempPassword = localStorage.getItem('df_local_temp_password');
+      const localTempPasswordExpires = Number(localStorage.getItem('df_local_temp_password_expires') || '0');
+      const localTempPasswordUsed = localStorage.getItem('df_local_temp_password_used') === 'true';
+
+      if (
+        username === savedUsername &&
+        localTempPassword &&
+        password === localTempPassword &&
+        !localTempPasswordUsed &&
+        new Date().getTime() < localTempPasswordExpires
+      ) {
+        localStorage.setItem('df_local_temp_password_used', 'true');
+        localStorage.setItem('df_admin_username', username);
+        localStorage.setItem('df_admin_password', password);
+        localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+        localStorage.setItem('df_must_change_password', 'true');
+        return true;
+      }
+
       return false;
     }
 
@@ -1100,10 +1180,56 @@ export const dbService = {
 
       if (!error && data && data.data) {
         const credentials = data.data;
+
+        // 1. Normal login check
         if (username === credentials.username && password === credentials.password) {
           localStorage.setItem('df_admin_username', username);
           localStorage.setItem('df_admin_password', password);
           localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+          
+          if (credentials.mustChangePassword) {
+            // If they are logging in with normal password, clear mustChangePassword on server
+            await supabase
+              .from('settings')
+              .upsert({
+                id: 'admin_credentials',
+                data: { ...credentials, mustChangePassword: false }
+              });
+            localStorage.removeItem('df_must_change_password');
+          } else {
+            localStorage.removeItem('df_must_change_password');
+          }
+          return true;
+        }
+
+        // 2. Temp password check
+        if (
+          username === credentials.username &&
+          credentials.tempPassword &&
+          password === credentials.tempPassword &&
+          !credentials.tempPasswordUsed &&
+          credentials.tempPasswordExpires &&
+          new Date().getTime() < new Date(credentials.tempPasswordExpires).getTime()
+        ) {
+          // Valid temp password
+          // Update DB immediately to mark as used
+          const updatedData = {
+            ...credentials,
+            tempPasswordUsed: true,
+            mustChangePassword: true
+          };
+
+          await supabase
+            .from('settings')
+            .upsert({
+              id: 'admin_credentials',
+              data: updatedData
+            });
+
+          localStorage.setItem('df_admin_username', username);
+          localStorage.setItem('df_admin_password', password);
+          localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+          localStorage.setItem('df_must_change_password', 'true');
           return true;
         }
       } else {
@@ -1118,6 +1244,7 @@ export const dbService = {
           localStorage.setItem('df_admin_username', 'admin');
           localStorage.setItem('df_admin_password', 'admin123');
           localStorage.setItem('df_admin_user', JSON.stringify({ username: 'admin', loggedIn: true }));
+          localStorage.removeItem('df_must_change_password');
           return true;
         }
       }
@@ -1131,14 +1258,37 @@ export const dbService = {
     if (username === savedUsername && password === savedPassword) {
       localStorage.setItem('df_admin_username', username);
       localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+      localStorage.removeItem('df_must_change_password');
       return true;
     }
+
+    // Secondary local fallback for temp password
+    const localTempPassword = localStorage.getItem('df_local_temp_password');
+    const localTempPasswordExpires = Number(localStorage.getItem('df_local_temp_password_expires') || '0');
+    const localTempPasswordUsed = localStorage.getItem('df_local_temp_password_used') === 'true';
+
+    if (
+      username === savedUsername &&
+      localTempPassword &&
+      password === localTempPassword &&
+      !localTempPasswordUsed &&
+      new Date().getTime() < localTempPasswordExpires
+    ) {
+      localStorage.setItem('df_local_temp_password_used', 'true');
+      localStorage.setItem('df_admin_username', username);
+      localStorage.setItem('df_admin_password', password);
+      localStorage.setItem('df_admin_user', JSON.stringify({ username, loggedIn: true }));
+      localStorage.setItem('df_must_change_password', 'true');
+      return true;
+    }
+
     return false;
   },
 
   async logoutAdmin(): Promise<void> {
     const savedUsername = localStorage.getItem('df_admin_username') || 'admin';
     localStorage.setItem('df_admin_user', JSON.stringify({ username: savedUsername, loggedIn: false }));
+    localStorage.removeItem('df_must_change_password');
   },
 
   isAdminLoggedIn(): boolean {
@@ -1163,11 +1313,23 @@ export const dbService = {
 
     try {
       const currentPassword = localStorage.getItem('df_admin_password') || 'admin123';
+      
+      // Fetch latest credentials to preserve tempPassword state
+      let credentials = { username: newUsername, password: currentPassword };
+      const { data } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'admin_credentials')
+        .single();
+      if (data && data.data) {
+        credentials = { ...data.data, username: newUsername };
+      }
+
       await supabase
         .from('settings')
         .upsert({
           id: 'admin_credentials',
-          data: { username: newUsername, password: currentPassword }
+          data: credentials
         });
       localStorage.setItem('df_admin_username', newUsername);
 
@@ -1185,21 +1347,123 @@ export const dbService = {
   async changeAdminPassword(newPassword: string): Promise<void> {
     if (!isConfigured) {
       localStorage.setItem('df_admin_password', newPassword);
+      localStorage.removeItem('df_must_change_password');
       return;
     }
 
     try {
       const currentUsername = localStorage.getItem('df_admin_username') || 'admin';
+      
+      let existingCredentials = { username: currentUsername, password: newPassword };
+      const { data } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'admin_credentials')
+        .single();
+      if (data && data.data) {
+        existingCredentials = data.data;
+      }
+
       await supabase
         .from('settings')
         .upsert({
           id: 'admin_credentials',
-          data: { username: currentUsername, password: newPassword }
+          data: { 
+            ...existingCredentials, 
+            username: currentUsername, 
+            password: newPassword,
+            mustChangePassword: false,
+            tempPassword: null,
+            tempPasswordExpires: null,
+            tempPasswordUsed: true
+          }
         });
       localStorage.setItem('df_admin_password', newPassword);
+      localStorage.removeItem('df_must_change_password');
       console.log("Admin password updated successfully in Supabase!");
     } catch (err) {
       console.error("Gagal mengubah admin password di Supabase:", err);
+    }
+  },
+
+  async resetAdminPasswordSecurely(): Promise<boolean> {
+    // 1. Generate a random temporary password (8 characters alphanumeric, easily readable)
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No confusing O, 0, I, 1 characters
+    let tempPassword = "";
+    for (let i = 0; i < 8; i++) {
+      tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    // 2. Calculate expiration date (10 minutes from now)
+    const expiresAt = new Date(new Date().getTime() + 10 * 60 * 1000);
+
+    // 3. Get WhatsApp recipient number
+    const settings = await this.getSettings();
+    const adminWhatsApp = settings.whatsapp || settings.phone || "6282255994981";
+
+    // 4. Construct message
+    const message = `Halo Admin D'Foria Kitchen,\n\n` +
+      `Sistem mendeteksi permintaan pemulihan akun. Berikut adalah Password Sementara Anda:\n\n` +
+      `*${tempPassword}*\n\n` +
+      `Password ini hanya berlaku selama *10 menit* atau sampai *digunakan sekali* untuk login. Setelah berhasil masuk, Anda *wajib* membuat password baru demi alasan keamanan.\n\n` +
+      `Terima kasih.`;
+
+    // 5. Send message via WhatsApp service
+    const { whatsappService } = await import('./whatsappService');
+    const waSent = await whatsappService.sendMessage(adminWhatsApp, message);
+
+    if (!waSent) {
+      console.warn("WhatsApp message delivery failed, but updating credentials anyway.");
+    }
+
+    // 6. Save temp password securely
+    if (!isConfigured) {
+      localStorage.setItem('df_local_temp_password', tempPassword);
+      localStorage.setItem('df_local_temp_password_expires', String(expiresAt.getTime()));
+      localStorage.setItem('df_local_temp_password_used', 'false');
+      console.log(`[SECURITY FALLBACK] Password sementara terbuat (local): ${tempPassword}`);
+      return true;
+    }
+
+    try {
+      let currentUsername = 'admin';
+      let currentPassword = 'admin123';
+      let existingData = {};
+      const { data } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'admin_credentials')
+        .single();
+      if (data && data.data) {
+        existingData = data.data;
+        currentUsername = data.data.username || 'admin';
+        currentPassword = data.data.password || 'admin123';
+      }
+
+      await supabase
+        .from('settings')
+        .upsert({
+          id: 'admin_credentials',
+          data: {
+            ...existingData,
+            username: currentUsername,
+            password: currentPassword, // Preserve current password until updated
+            tempPassword: tempPassword,
+            tempPasswordExpires: expiresAt.toISOString(),
+            tempPasswordUsed: false,
+            mustChangePassword: true
+          }
+        });
+      
+      console.log("[SECURITY] Temporary password saved to Supabase settings.");
+      return true;
+    } catch (err) {
+      console.error("Gagal menyimpan password sementara di Supabase:", err);
+      // Local fallback
+      localStorage.setItem('df_local_temp_password', tempPassword);
+      localStorage.setItem('df_local_temp_password_expires', String(expiresAt.getTime()));
+      localStorage.setItem('df_local_temp_password_used', 'false');
+      return true;
     }
   },
 
@@ -1370,56 +1634,6 @@ export const dbService = {
   },
 
   async saveSupabaseConfig(url: string, anonKey: string): Promise<boolean> {
-    const trimmedUrl = url.trim();
-    const trimmedKey = anonKey.trim();
-
-    if (!trimmedUrl || !trimmedKey) {
-      try {
-        localStorage.removeItem('df_supabase_url');
-        localStorage.removeItem('df_supabase_anon_key');
-        sessionStorage.removeItem('df_supabase_url');
-        sessionStorage.removeItem('df_supabase_anon_key');
-      } catch (e) {}
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-      return false;
-    }
-
-    if (!trimmedUrl.startsWith('http')) {
-      throw new Error("URL Supabase tidak valid. Harus dimulai dengan http:// atau https://");
-    }
-    if (trimmedUrl.length > 512 || trimmedUrl.includes('base64') || trimmedUrl.startsWith('data:')) {
-      throw new Error("URL Supabase tidak valid. Harap periksa kembali URL yang Anda masukkan.");
-    }
-    if (trimmedKey.startsWith('data:') || trimmedKey.includes(';base64,') || trimmedKey.length > 2000) {
-      throw new Error("Anon Key tidak valid. Pastikan Anda menyalin Anon Public Key dari dashboard Supabase Anda, bukan file gambar atau string base64.");
-    }
-
-    try {
-      // Test connection with a simple table query or ping
-      const testClient = createClient(trimmedUrl, trimmedKey);
-      const { error } = await testClient.from('menu').select('id').limit(1);
-      
-      if (error && error.code !== 'PGRST116' && error.code !== '42P01') {
-        throw error;
-      }
-
-      try {
-        localStorage.setItem('df_supabase_url', trimmedUrl);
-        localStorage.setItem('df_supabase_anon_key', trimmedKey);
-        sessionStorage.setItem('df_supabase_url', trimmedUrl);
-        sessionStorage.setItem('df_supabase_anon_key', trimmedKey);
-      } catch (e) {}
-      
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-      
-      return true;
-    } catch (err: any) {
-      console.error("Koneksi Supabase gagal:", err);
-      throw new Error(`Koneksi gagal: ${err.message || 'Verifikasi URL dan Anon Key Anda'}`);
-    }
+    throw new Error("Pengaturan koneksi lewat layar pengaturan (UI) telah dinonaktifkan. Silakan isi URL dan Anon Key langsung di dalam file 'src/lib/supabase.ts' agar tersinkronisasi di semua perangkat (HP orang lain juga) secara otomatis.");
   },
 };

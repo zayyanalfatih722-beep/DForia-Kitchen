@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingBag, Trash2, Plus, Minus, Ticket, ChevronRight, MessageSquareText } from 'lucide-react';
 import { CartItem, Coupon } from '../types';
@@ -30,6 +30,30 @@ export default function Cart({
   const [couponCode, setCouponCode] = useState(appliedCoupon ? appliedCoupon.code : '');
   const [couponError, setCouponError] = useState('');
   const [couponSuccess, setCouponSuccess] = useState(appliedCoupon ? 'Kupon berhasil diterapkan!' : '');
+
+  // Keep list of coupons in sync in real-time
+  const [availableCoupons, setAvailableCoupons] = useState<Coupon[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = dbService.subscribeCoupons((fetchedCoupons) => {
+      setAvailableCoupons(fetchedCoupons);
+      
+      // If we already have an applied coupon, make sure it is still active and valid in the fetchedCoupons!
+      if (appliedCoupon) {
+        const found = fetchedCoupons.find(c => c.id === appliedCoupon.id);
+        if (!found || !found.active) {
+          onApplyCoupon(null);
+          setCouponSuccess('');
+          setCouponError('Kupon yang Anda gunakan telah dinonaktifkan oleh restoran.');
+        } else if (found.discountValue !== appliedCoupon.discountValue || found.discountType !== appliedCoupon.discountType) {
+          onApplyCoupon(found);
+          setCouponSuccess(`Kupon ${found.code} diperbarui! Diskon ${found.discountType === 'percentage' ? found.discountValue + '%' : formatPrice(found.discountValue)}`);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [appliedCoupon, onApplyCoupon]);
 
   const formatPrice = (value: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -64,7 +88,7 @@ export default function Cart({
     }
 
     try {
-      const coupons = await dbService.getCoupons();
+      const coupons = availableCoupons.length > 0 ? availableCoupons : await dbService.getCoupons();
       const found = coupons.find(c => c.code.toUpperCase() === couponCode.trim().toUpperCase() && c.active);
 
       if (found) {

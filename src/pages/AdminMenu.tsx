@@ -287,7 +287,7 @@ export default function AdminMenu() {
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
@@ -407,8 +407,8 @@ export default function AdminMenu() {
 
             {/* Menu Modal */}
             {menuModalOpen && (
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center p-0 sm:p-4 overflow-y-auto animate-fade-in">
-                <div className="bg-white rounded-none sm:rounded-[24px] max-w-4xl w-full h-auto min-h-screen sm:min-h-0 sm:max-h-[calc(100vh-2rem)] flex flex-col shadow-medium border-0 sm:border border-cream-dark/50 relative overflow-visible sm:overflow-hidden">
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-start justify-center p-0 sm:p-4 py-8 overflow-y-auto animate-fade-in">
+                <div className="bg-white rounded-none sm:rounded-[24px] max-w-4xl w-full h-auto flex flex-col shadow-medium border-0 sm:border border-cream-dark/50 relative overflow-visible">
                   
                   {/* Sticky Header */}
                   <div className="p-5 pb-4 border-b border-cream/50 flex items-center justify-between shrink-0 bg-white">
@@ -425,8 +425,8 @@ export default function AdminMenu() {
                   </div>
 
                   {/* Scrollable Form Body */}
-                  <form onSubmit={handleSaveMenu} className="flex-1 flex flex-col justify-between overflow-visible sm:overflow-hidden">
-                    <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 text-left text-xs text-gray-600 overflow-visible sm:overflow-y-auto flex-1">
+                  <form onSubmit={handleSaveMenu} className="flex-1 flex flex-col justify-between overflow-visible">
+                    <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 text-left text-xs text-gray-600 overflow-visible flex-1">
                       
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                         

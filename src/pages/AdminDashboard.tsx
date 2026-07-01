@@ -284,7 +284,7 @@ export default function AdminDashboard() {
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24">
             <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3" />

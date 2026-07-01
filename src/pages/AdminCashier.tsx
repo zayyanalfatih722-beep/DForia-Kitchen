@@ -166,7 +166,7 @@ export default function AdminCashier() {
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
@@ -209,7 +209,7 @@ export default function AdminCashier() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pr-1">
                   {menus.filter(m => m.name.toLowerCase().includes(cashierQuery.toLowerCase()) && m.available).map(item => (
                     <div
                       key={item.id}
@@ -240,7 +240,7 @@ export default function AdminCashier() {
                   </h3>
 
                   {/* Cart list */}
-                  <div className="space-y-2.5 max-h-[30vh] overflow-y-auto pr-1">
+                  <div className="space-y-2.5 pr-1">
                     {cashierCart.map(c => (
                       <div key={c.menuItem.id} className="flex items-center justify-between text-xs bg-cream/25 p-2 rounded-xl border border-cream-dark/15">
                         <div className="min-w-0 flex-1 pr-2">

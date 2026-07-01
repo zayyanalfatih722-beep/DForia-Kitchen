@@ -15,7 +15,8 @@ import {
   LogOut,
   MessageSquare,
   X,
-  Volume2
+  Volume2,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { dbService } from '../lib/firebase';
@@ -29,6 +30,49 @@ export default function AdminHeader() {
   const [notifPermission, setNotifPermission] = useState<'default' | 'granted' | 'denied'>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
   );
+
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  useEffect(() => {
+    setMustChangePassword(dbService.mustChangeAdminPassword());
+  }, []);
+
+  const handleForceChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (newPassword.length < 6) {
+      setPasswordError('Kata sandi baru minimal harus 6 karakter.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      await dbService.changeAdminPassword(newPassword);
+      setPasswordSuccess('Kata sandi berhasil diperbarui!');
+      setTimeout(() => {
+        setMustChangePassword(false);
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 1500);
+    } catch (err) {
+      console.error(err);
+      setPasswordError('Gagal memperbarui kata sandi. Silakan coba lagi.');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   const [seenOrderIds, setSeenOrderIds] = useState<string[]>(() => {
     try {
@@ -420,6 +464,89 @@ export default function AdminHeader() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Force Password Change Modal Overlay */}
+      <AnimatePresence>
+        {mustChangePassword && (
+          <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-sm bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-cream-dark/50"
+            >
+              <div className="text-center mb-6">
+                <div className="bg-amber-100 text-amber-700 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Lock size={22} className="animate-pulse" />
+                </div>
+                <h2 className="font-serif text-lg font-bold text-gray-900">Ubah Kata Sandi Wajib</h2>
+                <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                  Anda masuk menggunakan kata sandi sementara. Demi keamanan, Anda wajib membuat kata sandi baru sebelum dapat menggunakan panel admin.
+                </p>
+              </div>
+
+              {passwordError && (
+                <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl border border-red-200/50 mb-4 font-medium flex items-center gap-2">
+                  <span>⚠️</span> {passwordError}
+                </div>
+              )}
+
+              {passwordSuccess && (
+                <div className="bg-emerald-50 text-emerald-600 text-xs p-3 rounded-xl border border-emerald-200/50 mb-4 font-medium flex items-center gap-2">
+                  <span>✅</span> {passwordSuccess}
+                </div>
+              )}
+
+              <form onSubmit={handleForceChangePassword} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1" htmlFor="force-new-password">
+                    Kata Sandi Baru
+                  </label>
+                  <input
+                    id="force-new-password"
+                    type="password"
+                    required
+                    disabled={passwordLoading}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Minimal 6 karakter"
+                    className="w-full bg-cream/10 text-gray-700 placeholder-gray-400 text-xs px-3.5 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1" htmlFor="force-confirm-password">
+                    Konfirmasi Kata Sandi Baru
+                  </label>
+                  <input
+                    id="force-confirm-password"
+                    type="password"
+                    required
+                    disabled={passwordLoading}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Ulangi kata sandi baru"
+                    className="w-full bg-cream/10 text-gray-700 placeholder-gray-400 text-xs px-3.5 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary transition-all"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="w-full bg-primary hover:bg-primary-dark disabled:bg-gray-400 text-white text-xs font-semibold py-3.5 rounded-xl shadow-soft transition-all cursor-pointer mt-2"
+                >
+                  {passwordLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                  ) : (
+                    'Simpan Kata Sandi Baru'
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </header>
+
   );
 }

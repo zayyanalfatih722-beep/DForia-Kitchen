@@ -260,3 +260,86 @@ BEGIN
 END $$;
 
 ALTER PUBLICATION supabase_realtime SET TABLE menu, banners, orders, settings, promos, categories, customers, order_items;
+
+
+-- ====================================================================
+-- SECURE TRANSACTIONAL ORDER PLACEMENT (RPC FUNCTION)
+-- ====================================================================
+-- Fungsi PostgreSQL ini menangani pembuatan pesanan dan pengurangan stok
+-- secara otomatis dalam satu transaksi database untuk mencegah stok negatif.
+
+CREATE OR REPLACE FUNCTION create_order_secure(
+  p_order_id TEXT,
+  p_customer_id TEXT,
+  p_customer_name TEXT,
+  p_table_number TEXT,
+  p_phone_number TEXT,
+  p_notes TEXT,
+  p_items JSONB,
+  p_total_amount NUMERIC,
+  p_payment_method TEXT,
+  p_status TEXT,
+  p_created_at TEXT
+) RETURNS JSONB AS $$
+DECLARE
+  v_item RECORD;
+  v_menu_id TEXT;
+  v_qty INTEGER;
+  v_stock INTEGER;
+  v_name TEXT;
+  v_available BOOLEAN;
+  v_item_id TEXT;
+  v_index INT := 0;
+BEGIN
+  -- 1. Check and Upsert Customer
+  IF p_customer_id IS NOT NULL AND p_customer_id <> '' THEN
+    INSERT INTO customers (id, name, phone)
+    VALUES (p_customer_id, p_customer_name, p_phone_number)
+    ON CONFLICT (id) DO UPDATE
+    SET name = EXCLUDED.name, phone = EXCLUDED.phone;
+  END IF;
+
+  -- 2. Validate and Decrement Stock for each item
+  FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(menuItemId TEXT, quantity INTEGER, name TEXT) LOOP
+    v_menu_id := v_item.menuItemId;
+    v_qty := v_item.quantity;
+    v_name := v_item.name;
+
+    -- Fetch current stock with Row Lock for safety (SELECT FOR UPDATE)
+    SELECT stock, available INTO v_stock, v_available FROM menu WHERE id = v_menu_id FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Menu "%" tidak ditemukan.', v_name;
+    END IF;
+
+    IF v_stock < v_qty THEN
+      RAISE EXCEPTION 'Stok "%" tidak cukup. Tersedia: %, Anda minta: %.', v_name, v_stock, v_qty;
+    END IF;
+
+    -- Decrement Stock and set availability if 0
+    UPDATE menu
+    SET 
+      stock = stock - v_qty,
+      available = CASE WHEN stock - v_qty <= 0 THEN FALSE ELSE available END,
+      "isAvailable" = CASE WHEN stock - v_qty <= 0 THEN FALSE ELSE "isAvailable" END
+    WHERE id = v_menu_id;
+  END LOOP;
+
+  -- 3. Create Order
+  INSERT INTO orders (id, customerId, customerName, tableNumber, phoneNumber, notes, items, total_amount, payment_method, status, created_at, "stockDecremented")
+  VALUES (p_order_id, p_customer_id, p_customer_name, p_table_number, p_phone_number, p_notes, p_items, p_total_amount, p_payment_method, p_status, p_created_at, TRUE);
+
+  -- 4. Create Order Items
+  FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(menuItemId TEXT, quantity INTEGER, name TEXT, price NUMERIC, notes TEXT, image TEXT) LOOP
+    v_item_id := p_order_id || '-item-' || v_index;
+    INSERT INTO order_items (id, order_id, menu_item_id, name, price, quantity, notes, image)
+    VALUES (v_item_id, p_order_id, v_item.menuItemId, v_item.name, v_item.price, v_item.quantity, COALESCE(v_item.notes, ''), COALESCE(v_item.image, ''));
+    v_index := v_index + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object('success', TRUE, 'message', 'Pesanan berhasil dibuat.');
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('success', FALSE, 'message', SQLERRM);
+END;
+$$ LANGUAGE plpgsql;
+

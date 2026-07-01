@@ -76,7 +76,7 @@ export default function AdminTestimonials() {
     <div className="bg-[#F5F1E8] min-h-[100dvh] h-auto pb-24 text-gray-800">
       <AdminHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-8">
         {/* Page Title & Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>

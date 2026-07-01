@@ -99,7 +99,7 @@ export default function AdminReports() {
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
