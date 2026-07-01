@@ -14,8 +14,8 @@ export interface WhatsAppConfig {
 // Default mock configuration - can be easily customized by the user in production
 const defaultConfig: WhatsAppConfig = {
   provider: 'mock',
-  apiKey: process.env.VITE_WHATSAPP_API_KEY || '',
-  senderNumber: process.env.VITE_WHATSAPP_SENDER || '',
+  apiKey: import.meta.env.VITE_WHATSAPP_API_KEY || '',
+  senderNumber: import.meta.env.VITE_WHATSAPP_SENDER || '',
 };
 
 export const whatsappService = {
