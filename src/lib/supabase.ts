@@ -1399,7 +1399,7 @@ export const dbService = {
 
     // 3. Get WhatsApp recipient number
     const settings = await this.getSettings();
-    const adminWhatsApp = settings.whatsapp || settings.phone || "6282255994981";
+    const adminWhatsApp = settings.whatsapp || settings.phone || "082255994981";
 
     // 4. Construct message
     const message = `Halo Admin D'Foria Kitchen,\n\n` +

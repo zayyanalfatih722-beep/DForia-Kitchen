@@ -27,7 +27,12 @@ export const whatsappService = {
    */
   async sendMessage(recipientPhone: string, message: string): Promise<boolean> {
     const config = this.getConfig();
-    const cleanPhone = recipientPhone.replace(/[^0-9]/g, '');
+    let cleanPhone = recipientPhone.replace(/[^0-9]/g, '');
+
+    // Convert local Indonesian format (08...) to international format (628...)
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.slice(1);
+    }
 
     console.log(`[WhatsAppService] Sending message to ${cleanPhone} via provider "${config.provider}":`);
     console.log(`[WhatsAppService] Content: "${message}"`);
