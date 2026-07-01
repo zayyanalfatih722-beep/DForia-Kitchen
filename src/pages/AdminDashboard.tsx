@@ -63,10 +63,39 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
 
   // Shared entity state
-  const [menus, setMenus] = useState<MenuItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [menus, setMenus] = useState<MenuItem[]>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_menus');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_orders');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [settings, setSettings] = useState<StoreSettings | null>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_settings');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cachedMenus = localStorage.getItem('df_cached_menus');
+      const cachedOrders = localStorage.getItem('df_cached_orders');
+      return cachedMenus && cachedOrders ? false : true;
+    } catch (e) {
+      return true;
+    }
+  });
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -121,10 +150,20 @@ export default function AdminDashboard() {
     // Load static settings
     dbService.getSettings().then(setSettings).catch(console.error);
 
-    setLoading(true);
+    // Only set loading if there is no cached data at all
+    const hasCache = localStorage.getItem('df_cached_menus') && localStorage.getItem('df_cached_orders');
+    if (!hasCache) {
+      setLoading(true);
+    }
+
+    // Fallback timeout to clear loading screen if connection takes too long
+    const fallbackTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 3500);
 
     // Subscribe to Menus
     const unsubscribeMenus = dbService.subscribeMenus((fetchedMenus) => {
+      clearTimeout(fallbackTimeout);
       setMenus(fetchedMenus);
       setStats(prev => {
         const outOfStockCount = fetchedMenus.filter(m => (m.stock !== undefined ? m.stock : 20) <= 0).length;
@@ -145,6 +184,7 @@ export default function AdminDashboard() {
 
     // Subscribe to Orders
     const unsubscribeOrders = dbService.subscribeOrders((fetchedOrders) => {
+      clearTimeout(fallbackTimeout);
       setOrders(fetchedOrders);
       setStats(prev => {
         const totalRevenue = fetchedOrders
@@ -160,9 +200,11 @@ export default function AdminDashboard() {
           totalOrdersCount: fetchedOrders.length
         };
       });
+      setLoading(false);
     });
 
     return () => {
+      clearTimeout(fallbackTimeout);
       unsubscribeMenus();
       unsubscribeOrders();
     };
@@ -237,12 +279,12 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-cream pb-12">
+    <div className="min-h-[100dvh] h-auto bg-cream pb-12">
       {/* Top Admin Header */}
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24">
             <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3" />
@@ -437,9 +479,18 @@ export default function AdminDashboard() {
                     {orders.slice(0, 5).map((o) => (
                       <tr key={o.id} className="hover:bg-cream/15 transition-colors">
                         <td className="py-4 px-6 font-mono font-bold text-gray-700">{o.id}</td>
-                        <td className="py-4 px-6 font-semibold">{o.customerName}</td>
-                        <td className="py-4 px-6 text-gray-400">{new Date(o.createdAt).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'})}</td>
-                        <td className="py-4 px-6 font-mono font-bold text-primary">{formatPrice(o.totalAmount)}</td>
+                        <td className="py-4 px-6 font-semibold">{o.customerName || 'Pelanggan'}</td>
+                        <td className="py-4 px-6 text-gray-400">
+                          {o.createdAt ? (() => {
+                            try {
+                              const d = new Date(o.createdAt);
+                              return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'});
+                            } catch (e) {
+                              return '-';
+                            }
+                          })() : '-'}
+                        </td>
+                        <td className="py-4 px-6 font-mono font-bold text-primary">{formatPrice(o.totalAmount || 0)}</td>
                         <td className="py-4 px-6">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             o.status === 'Selesai' ? 'bg-green-50 text-green-600 border border-green-200' :

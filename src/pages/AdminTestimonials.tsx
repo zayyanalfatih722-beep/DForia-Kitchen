@@ -73,7 +73,7 @@ export default function AdminTestimonials() {
   };
 
   return (
-    <div className="bg-[#F5F1E8] min-h-screen pb-24 text-gray-800">
+    <div className="bg-[#F5F1E8] min-h-[100dvh] h-auto pb-24 text-gray-800">
       <AdminHeader />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">

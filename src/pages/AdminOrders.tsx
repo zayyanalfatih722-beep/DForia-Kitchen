@@ -17,9 +17,31 @@ export default function AdminOrders() {
   const navigate = useNavigate();
 
   // Shared entity state
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_orders');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [settings, setSettings] = useState<StoreSettings | null>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_settings');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_orders');
+      return cached ? false : true;
+    } catch (e) {
+      return true;
+    }
+  });
+  const [isLive, setIsLive] = useState(false);
 
   // Search orders
   const [orderQuery, setOrderQuery] = useState('');
@@ -42,14 +64,36 @@ export default function AdminOrders() {
     }
     
     loadAllData();
-    setLoading(true);
+    
+    // Only show loading screen if there is no cache at all
+    const hasCache = localStorage.getItem('df_cached_orders');
+    if (!hasCache) {
+      setLoading(true);
+    }
+
+    // If Firestore takes more than 3.5 seconds to respond, force use local cache to ensure admin isn't blocked!
+    const fallbackTimeout = setTimeout(() => {
+      try {
+        const cached = localStorage.getItem('df_cached_orders');
+        if (cached) {
+          setOrders(JSON.parse(cached));
+        }
+      } catch (e) {}
+      setLoading(false);
+      setIsLive(false);
+    }, 3500);
 
     const unsubscribe = dbService.subscribeOrders((fetchedOrders) => {
+      clearTimeout(fallbackTimeout);
       setOrders(fetchedOrders);
       setLoading(false);
+      setIsLive(true);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(fallbackTimeout);
+      unsubscribe();
+    };
   }, [navigate]);
 
   const formatPrice = (value: number) => {
@@ -62,7 +106,20 @@ export default function AdminOrders() {
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
-    await dbService.updateOrderStatus(orderId, status);
+    // Optimistic UI state update to guarantee instant select response
+    setOrders(prevOrders => {
+      const updated = prevOrders.map(o => o.id === orderId ? { ...o, status } : o);
+      try {
+        localStorage.setItem('df_cached_orders', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    try {
+      await dbService.updateOrderStatus(orderId, status);
+    } catch (err) {
+      console.error("Gagal mengupdate status pesanan ke cloud:", err);
+    }
     loadAllData();
   };
 
@@ -73,12 +130,12 @@ export default function AdminOrders() {
   );
 
   return (
-    <div className="min-h-screen bg-cream pb-12">
+    <div className="min-h-[100dvh] h-auto bg-cream pb-12">
       {/* Top Admin Navigation Header */}
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
@@ -98,7 +155,21 @@ export default function AdminOrders() {
           <div className="space-y-6 animate-fade-in">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
-                <h2 className="font-serif font-bold text-2xl text-gray-800">Manajemen Antrean Pesanan</h2>
+                <div className="flex items-center space-x-2">
+                  <h2 className="font-serif font-bold text-2xl text-gray-800">Manajemen Antrean Pesanan</h2>
+                  {isLive ? (
+                    <span className="flex items-center space-x-1.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border border-emerald-150 shadow-soft">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping shrink-0" />
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full absolute shrink-0" />
+                      <span>Live</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center space-x-1.5 bg-amber-50 text-amber-600 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border border-amber-150 animate-pulse shadow-soft">
+                      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full shrink-0" />
+                      <span>Connecting...</span>
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-400 mt-1">Ubah status pesanan pelanggan secara real-time dari dapur atau pelayan.</p>
               </div>
               <div className="relative w-full md:w-80">
@@ -150,16 +221,22 @@ export default function AdminOrders() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10px] text-primary font-semibold mt-0.5">Meja {o.tableNumber}</p>
+                            <p className="text-[10px] text-primary font-semibold mt-0.5">Meja {o.tableNumber || '-'}</p>
                           <p className="text-[10px] text-gray-400 font-medium mt-1">
-                            {new Date(o.createdAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'})} WIB
+                            {o.createdAt ? (() => {
+                              try {
+                                return new Date(o.createdAt).toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'});
+                              } catch (e) {
+                                return '--:--';
+                              }
+                            })() : '--:--'} WIB
                           </p>
                         </td>
                         <td className="py-4.5 px-6 space-y-1 max-w-xs">
-                          {o.items.map((it, idx) => (
+                          {(o.items || []).map((it, idx) => (
                             <div key={idx} className="flex justify-between items-center text-[11px] bg-cream/30 p-1.5 rounded-lg border border-cream-dark/15">
-                              <span>{it.name} <strong className="text-primary font-mono text-[10px]">x{it.quantity}</strong></span>
-                              {it.notes && <span className="text-[9px] text-amber-600 italic block">"{it.notes}"</span>}
+                              <span>{it?.name || 'Item tidak diketahui'} <strong className="text-primary font-mono text-[10px]">x{it?.quantity || 1}</strong></span>
+                              {it?.notes && <span className="text-[9px] text-amber-600 italic block">"{it.notes}"</span>}
                             </div>
                           ))}
                           {o.notes && (
@@ -172,10 +249,10 @@ export default function AdminOrders() {
                           <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                             o.paymentMethod === 'QRIS' ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-600'
                           }`}>
-                            {o.paymentMethod}
+                            {o.paymentMethod || 'Tunai'}
                           </span>
                         </td>
-                        <td className="py-4.5 px-6 font-mono font-bold text-gray-800">{formatPrice(o.totalAmount)}</td>
+                        <td className="py-4.5 px-6 font-mono font-bold text-gray-800">{formatPrice(o.totalAmount || 0)}</td>
                         <td className="py-4.5 px-6">
                           <div className="flex flex-col space-y-1.5 min-w-[140px]">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-center ${

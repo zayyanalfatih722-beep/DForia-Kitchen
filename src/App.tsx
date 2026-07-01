@@ -26,6 +26,7 @@ import AdminTestimonials from './pages/AdminTestimonials';
 import BottomNav from './components/BottomNav';
 import WhatsAppButton from './components/WhatsAppButton';
 import { InstallPromptBar } from './components/InstallPrompt';
+import QuotaWarningBanner from './components/QuotaWarningBanner';
 
 // Main layout wrapper to dynamically toggle BottomNav and WhatsApp contact helper
 function AppContent() {
@@ -131,8 +132,51 @@ function AppContent() {
 
   const isClientSide = !location.pathname.startsWith('/admin');
 
+  // ResizeObserver to adjust iframe parent height automatically in real-time
+  useEffect(() => {
+    const isIframe = window.self !== window.top;
+    if (!isIframe) return;
+
+    const target = document.documentElement || document.body;
+    if (!target) return;
+
+    const sendHeight = () => {
+      const height = Math.max(
+        document.body.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.clientHeight,
+        document.documentElement.scrollHeight,
+        document.documentElement.offsetHeight
+      );
+      window.parent.postMessage({ type: 'resize-iframe', height }, '*');
+      window.parent.postMessage({ height }, '*');
+    };
+
+    const resizeObserver = new ResizeObserver(() => {
+      sendHeight();
+    });
+
+    resizeObserver.observe(target);
+    // Also observe document body just to be safe
+    if (document.body) {
+      resizeObserver.observe(document.body);
+    }
+
+    // Trigger initial send and also send on layout updates
+    sendHeight();
+    window.addEventListener('load', sendHeight);
+    window.addEventListener('resize', sendHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('load', sendHeight);
+      window.removeEventListener('resize', sendHeight);
+    };
+  }, [location.pathname]); // Also re-trigger on path transitions
+
   return (
-    <div className="bg-cream min-h-screen text-gray-800 selection:bg-primary/25">
+    <div className="bg-cream min-h-[100dvh] h-auto text-gray-800 selection:bg-primary/25 overflow-visible">
+      <QuotaWarningBanner />
       {/* Routes Switch */}
       <Routes>
         {/* Customer Routes */}

@@ -17,19 +17,53 @@ interface MenuProps {
 type SortOption = 'default' | 'price-low' | 'price-high' | 'rating';
 
 export default function Menu({ onAddCart }: MenuProps) {
-  const [menus, setMenus] = useState<MenuItem[]>([]);
+  const [menus, setMenus] = useState<MenuItem[]>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_menus');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('default');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_menus');
+      return cached ? false : true;
+    } catch (e) {
+      return true;
+    }
+  });
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
 
   useEffect(() => {
+    const hasCache = localStorage.getItem('df_cached_menus');
+    if (!hasCache) {
+      setLoading(true);
+    }
+    // If Firestore takes more than 3.5 seconds to respond, force use local cache to ensure customer can view menus
+    const fallbackTimeout = setTimeout(() => {
+      try {
+        const cached = localStorage.getItem('df_cached_menus');
+        if (cached) {
+          setMenus(JSON.parse(cached));
+        }
+      } catch (e) {}
+      setLoading(false);
+    }, 3500);
+
     const unsubscribe = dbService.subscribeMenus((fetched) => {
+      clearTimeout(fallbackTimeout);
       setMenus(fetched);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      clearTimeout(fallbackTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const categories = ['Semua', 'Makanan Berat', 'Minuman', 'Cemilan'];
@@ -163,6 +197,7 @@ export default function Menu({ onAddCart }: MenuProps) {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              onClick={(e) => e.stopPropagation()}
               className="relative z-10 max-w-[95vw] max-h-[85vh] flex flex-col items-center justify-center"
             >
               {/* Close Button */}

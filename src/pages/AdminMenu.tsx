@@ -21,9 +21,30 @@ export default function AdminMenu() {
   const navigate = useNavigate();
 
   // Shared entity state
-  const [menus, setMenus] = useState<MenuItem[]>([]);
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [menus, setMenus] = useState<MenuItem[]>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_menus');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [settings, setSettings] = useState<StoreSettings | null>(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_settings');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = localStorage.getItem('df_cached_menus');
+      return cached ? false : true;
+    } catch (e) {
+      return true;
+    }
+  });
 
   // Modal / Add state for Menu
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -45,6 +66,8 @@ export default function AdminMenu() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | Blob | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   // Initial Load (Settings are fetched statically, menus are updated in real-time)
   const loadAllData = async () => {
@@ -64,14 +87,33 @@ export default function AdminMenu() {
     }
     
     loadAllData();
-    setLoading(true);
+    
+    const hasCache = localStorage.getItem('df_cached_menus');
+    if (!hasCache) {
+      setLoading(true);
+    }
+
+    // Fallback timeout to clear loading screen if connection takes too long
+    const fallbackTimeout = setTimeout(() => {
+      try {
+        const cached = localStorage.getItem('df_cached_menus');
+        if (cached) {
+          setMenus(JSON.parse(cached));
+        }
+      } catch (e) {}
+      setLoading(false);
+    }, 3500);
 
     const unsubscribe = dbService.subscribeMenus((fetchedMenus) => {
+      clearTimeout(fallbackTimeout);
       setMenus(fetchedMenus);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(fallbackTimeout);
+      unsubscribe();
+    };
   }, [navigate]);
 
   const formatPrice = (value: number) => {
@@ -86,6 +128,7 @@ export default function AdminMenu() {
   const handleOpenMenuModal = (menu: MenuItem | null = null) => {
     setSaving(false);
     setSaveError(null);
+    setSelectedImageFile(null);
     if (menu) {
       setSelectedMenu(menu);
       setMenuForm({
@@ -128,6 +171,7 @@ export default function AdminMenu() {
       const itemToSave: MenuItem = {
         id: selectedMenu ? selectedMenu.id : '',
         ...menuForm,
+        image: menuForm.image,
         // If stock is 0, auto-set available flag for backward compatibility
         available: menuForm.stock > 0 && menuForm.isAvailable
       };
@@ -166,7 +210,8 @@ export default function AdminMenu() {
         return;
       }
 
-      setSaving(true);
+      setUploadingImage(true);
+      setSaveError(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
@@ -192,33 +237,57 @@ export default function AdminMenu() {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            // Compress to JPEG with 0.7 quality to keep it under 100KB
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            setMenuForm(prev => ({ ...prev, image: compressedDataUrl }));
+            
+            // Compress and convert to Blob so it's ready to upload to Supabase Storage
+            canvas.toBlob(async (blob) => {
+              if (blob) {
+                try {
+                  const fileToUpload = new File(
+                    [blob], 
+                    `menu-${Date.now()}.jpg`, 
+                    { type: 'image/jpeg' }
+                  );
+                  const publicUrl = await dbService.uploadImage(fileToUpload);
+                  setMenuForm(prev => ({ ...prev, image: publicUrl }));
+                  setSelectedImageFile(null);
+                } catch (uploadErr: any) {
+                  console.error("Gagal mengupload gambar langsung:", uploadErr);
+                  // Use the base64 URL as fallback so it works 100%!
+                  const base64Data = canvas.toDataURL('image/jpeg', 0.75);
+                  setMenuForm(prev => ({ ...prev, image: base64Data }));
+                  setSelectedImageFile(null);
+                  setSaveError(`Catatan: Terjadi kendala penyimpanan Supabase (${uploadErr.message || uploadErr}), sistem otomatis mengalihkan ke penyimpanan database (Base64) agar menu Anda tetap tersimpan dengan aman.`);
+                }
+              } else {
+                setSaveError("Gagal memproses/mengompres gambar.");
+              }
+              setUploadingImage(false);
+            }, 'image/jpeg', 0.75);
+          } else {
+            setUploadingImage(false);
           }
-          setSaving(false);
         };
         img.onerror = () => {
           setSaveError("Gagal memproses file gambar.");
-          setSaving(false);
+          setUploadingImage(false);
         };
         img.src = event.target?.result as string;
       };
       reader.onerror = () => {
         setSaveError("Gagal membaca file.");
-        setSaving(false);
+        setUploadingImage(false);
       };
       reader.readAsDataURL(file);
     }
   };
 
   return (
-    <div className="min-h-screen bg-cream pb-12">
+    <div className="min-h-[100dvh] h-auto bg-cream pb-12">
       {/* Top Admin Navigation Header */}
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
@@ -338,224 +407,282 @@ export default function AdminMenu() {
 
             {/* Menu Modal */}
             {menuModalOpen && (
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
-                <div className="bg-white rounded-[24px] max-w-lg w-full p-6 shadow-medium border border-cream-dark/50 relative max-h-[90vh] overflow-y-auto">
-                  <button
-                    onClick={() => setMenuModalOpen(false)}
-                    className="absolute top-5 right-5 text-gray-400 hover:text-gray-700"
-                    title="Tutup"
-                  >
-                    <X size={18} />
-                  </button>
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-50 flex items-center justify-center p-0 sm:p-4 overflow-y-auto animate-fade-in">
+                <div className="bg-white rounded-none sm:rounded-[24px] max-w-4xl w-full h-auto min-h-screen sm:min-h-0 sm:max-h-[calc(100vh-2rem)] flex flex-col shadow-medium border-0 sm:border border-cream-dark/50 relative overflow-visible sm:overflow-hidden">
+                  
+                  {/* Sticky Header */}
+                  <div className="p-5 pb-4 border-b border-cream/50 flex items-center justify-between shrink-0 bg-white">
+                    <h3 className="font-serif font-bold text-lg text-primary">
+                      {selectedMenu ? 'Ubah Informasi Menu' : 'Tambah Menu Baru'}
+                    </h3>
+                    <button
+                      onClick={() => setMenuModalOpen(false)}
+                      className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-cream transition-colors cursor-pointer"
+                      title="Tutup"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
 
-                  <h3 className="font-serif font-bold text-lg text-primary border-b border-cream/50 pb-3 mb-5">
-                    {selectedMenu ? 'Ubah Informasi Menu' : 'Tambah Menu Baru'}
-                  </h3>
-
-                  <form onSubmit={handleSaveMenu} className="space-y-4.5 text-left text-xs text-gray-600">
-                    {/* Photo preview */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Foto Menu</label>
-                      <div className="flex flex-col items-center space-y-3 p-4 bg-cream/35 rounded-2xl border border-cream-dark/50 border-dashed">
-                        {menuForm.image ? (
-                          <img src={menuForm.image} alt="Preview" className="w-36 h-36 rounded-xl object-cover bg-white shadow-soft" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-36 h-36 rounded-xl bg-white flex items-center justify-center border text-gray-300">
-                            <ImageIcon size={32} />
+                  {/* Scrollable Form Body */}
+                  <form onSubmit={handleSaveMenu} className="flex-1 flex flex-col justify-between overflow-visible sm:overflow-hidden">
+                    <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 text-left text-xs text-gray-600 overflow-visible sm:overflow-y-auto flex-1">
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        
+                        {/* Left Column: Image, URL & Checkboxes (Col Span 5 for generous preview space) */}
+                        <div className="lg:col-span-5 space-y-4 sm:space-y-6">
+                          {/* Photo preview */}
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Foto Menu</label>
+                            <div className="flex flex-row sm:flex-col items-center space-y-0 sm:space-y-4 gap-4 p-3.5 sm:p-5 bg-cream/35 rounded-2xl border border-cream-dark/50 border-dashed w-full">
+                              {menuForm.image ? (
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={menuForm.image} 
+                                    alt="Preview" 
+                                    className="w-20 h-20 sm:w-[200px] sm:h-[200px] rounded-xl object-cover bg-white shadow-soft" 
+                                    referrerPolicy="no-referrer" 
+                                  />
+                                  {uploadingImage && (
+                                    <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
+                                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="w-20 h-20 sm:w-[200px] sm:h-[200px] rounded-xl bg-white flex flex-col items-center justify-center border border-cream-dark/70 text-gray-400 gap-1 sm:gap-2 shrink-0">
+                                  {uploadingImage ? (
+                                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <>
+                                      <ImageIcon size={24} className="text-gray-300 sm:w-10 sm:h-10" />
+                                      <span className="text-[9px] sm:text-[10px] font-medium text-gray-400 text-center px-1">Kosong</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex flex-col sm:flex-row gap-2 w-full justify-center">
+                                <label className={`flex-1 bg-primary hover:bg-primary-dark text-white font-bold py-2 px-3 sm:py-3 sm:px-4 rounded-xl transition-all cursor-pointer text-center text-[10px] sm:text-[11px] shadow-sm flex items-center justify-center gap-1.5 ${
+                                  uploadingImage ? 'opacity-55 cursor-not-allowed' : ''
+                                }`}>
+                                  {uploadingImage ? (
+                                    <>
+                                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                      <span>Unggah...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span>Pilih File</span>
+                                    </>
+                                  )}
+                                  <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={handleFileUpload} 
+                                    className="hidden" 
+                                    disabled={uploadingImage} 
+                                  />
+                                </label>
+                                {menuForm.image && (
+                                  <button
+                                    type="button"
+                                    disabled={uploadingImage}
+                                    onClick={() => {
+                                      setMenuForm(prev => ({ ...prev, image: '' }));
+                                      setSelectedImageFile(null);
+                                    }}
+                                    className="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-3 sm:px-4 rounded-xl transition-colors cursor-pointer text-[10px] sm:text-[11px]"
+                                  >
+                                    Hapus
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        <div className="flex space-x-2 w-full">
-                          <label className="flex-1 bg-primary hover:bg-primary-dark text-white font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer text-center">
-                            Upload dari Galeri
-                            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                          </label>
-                          {menuForm.image && (
-                            <button
-                              type="button"
-                              onClick={() => setMenuForm(prev => ({ ...prev, image: '' }))}
-                              className="bg-red-50 hover:bg-red-100 text-red-600 font-bold px-4 rounded-xl transition-colors cursor-pointer"
-                            >
-                              Hapus Foto
-                            </button>
-                          )}
+
+                          {/* Image URL Input */}
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Atau masukkan URL gambar</label>
+                            <input
+                              type="text"
+                              placeholder="https://images.unsplash.com/photo-..."
+                              value={menuForm.image}
+                              onChange={(e) => setMenuForm(prev => ({ ...prev, image: e.target.value }))}
+                              className="w-full bg-cream/15 px-3.5 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-gray-700"
+                            />
+                          </div>
+
+                          {/* Checkboxes */}
+                          <div className="flex flex-col gap-3 bg-cream/20 p-4.5 rounded-xl border border-cream-dark/20">
+                            <label className="flex items-center space-x-3 cursor-pointer font-bold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={menuForm.isAvailable}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, isAvailable: e.target.checked }))}
+                                className="rounded accent-primary w-4.5 h-4.5 cursor-pointer"
+                              />
+                              <span>Buka (Menu Tersedia)</span>
+                            </label>
+
+                            <label className="flex items-center space-x-3 cursor-pointer font-bold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={menuForm.bestseller}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, bestseller: e.target.checked }))}
+                                className="rounded accent-primary w-4.5 h-4.5 cursor-pointer"
+                              />
+                              <span>Jadikan Best Seller ⭐</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Name, Price, Category, Stock, Description (Col Span 7 for massive, comfortable inputs) */}
+                        <div className="lg:col-span-7 space-y-6">
+                          {/* Name Input */}
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-name">Nama Menu</label>
+                            <input
+                              id="form-menu-name"
+                              type="text"
+                              required
+                              placeholder="Contoh: Nasi Goreng Hijau Spesial"
+                              value={menuForm.name}
+                              onChange={(e) => setMenuForm(prev => ({ ...prev, name: e.target.value }))}
+                              className="w-full bg-cream/15 px-4 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-sm text-gray-800 font-semibold"
+                            />
+                          </div>
+
+                          {/* Price & Category Grid */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-price">Harga Jual (Rp)</label>
+                              <input
+                                id="form-menu-price"
+                                type="number"
+                                required
+                                placeholder="12000"
+                                value={menuForm.price}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, price: Number(e.target.value) }))}
+                                className="w-full bg-cream/15 px-4 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-sm text-gray-800 font-bold"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-category">Kategori Menu</label>
+                              <select
+                                id="form-menu-category"
+                                value={menuForm.category}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, category: e.target.value }))}
+                                className="w-full bg-cream/15 px-4 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-sm text-gray-700 font-semibold cursor-pointer"
+                              >
+                                <option value="Makanan Berat">Makanan Berat</option>
+                                <option value="Minuman">Minuman</option>
+                                <option value="Cemilan">Cemilan</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Stock & Daily Quota Grid */}
+                          <div className="grid grid-cols-2 gap-4 bg-cream/10 p-4.5 rounded-xl border border-cream-dark/15">
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1" htmlFor="form-menu-stock">Sisa Stok (Porsi)</label>
+                              <input
+                                id="form-menu-stock"
+                                type="number"
+                                required
+                                min="0"
+                                placeholder="20"
+                                value={menuForm.stock}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, stock: Number(e.target.value) }))}
+                                className="w-full bg-white px-4 py-3 rounded-xl border border-cream-dark/40 focus:outline-none text-sm text-gray-800 font-bold"
+                              />
+                              <span className="text-[9px] text-gray-400 mt-0.5 block">Jika 0, status otomatis "Habis".</span>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1" htmlFor="form-menu-quota">Batas Kuota Harian</label>
+                              <input
+                                id="form-menu-quota"
+                                type="number"
+                                value={menuForm.dailyQuota}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, dailyQuota: Number(e.target.value) }))}
+                                className="w-full bg-white px-4 py-3 rounded-xl border border-cream-dark/40 focus:outline-none text-sm text-gray-800 font-bold"
+                              />
+                              <span className="text-[9px] text-gray-400 mt-0.5 block">Batas porsi maksimal per hari.</span>
+                            </div>
+                          </div>
+
+                          {/* Rating & Description */}
+                          <div className="grid grid-cols-1 gap-5">
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-rating">Rating Bintang Menu (1-5)</label>
+                              <input
+                                id="form-menu-rating"
+                                type="number"
+                                step="0.1"
+                                min="1"
+                                max="5"
+                                placeholder="5"
+                                value={menuForm.rating}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, rating: Number(e.target.value) }))}
+                                className="w-full bg-cream/15 px-4 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-sm text-gray-700"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-desc">Deskripsi Rasa & Penyajian</label>
+                              <textarea
+                                id="form-menu-desc"
+                                rows={4}
+                                placeholder="Deskripsi lengkap mengenai rasa, cita rasa kuliner, tingkat kepedasan, komposisi utama, atau cara penyajian piring..."
+                                value={menuForm.description}
+                                onChange={(e) => setMenuForm(prev => ({ ...prev, description: e.target.value }))}
+                                className="w-full bg-cream/15 px-4 py-3.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary text-sm text-gray-700 resize-y leading-relaxed"
+                              />
+                            </div>
+                          </div>
+
                         </div>
                       </div>
+
+                      {/* Error Banner */}
+                      {saveError && (
+                        <div className="bg-red-50 text-red-600 border border-red-200 p-4 rounded-xl font-medium text-[11px] leading-relaxed text-left flex items-start space-x-2.5 animate-fade-in">
+                          <span className="text-sm shrink-0">⚠️</span>
+                          <span>{saveError}</span>
+                        </div>
+                      )}
+
                     </div>
 
-                    {/* Image URL Input */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Atau masukkan URL gambar</label>
-                      <input
-                        type="text"
-                        placeholder="https://images.unsplash.com/photo-..."
-                        value={menuForm.image}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, image: e.target.value }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary"
-                      />
-                    </div>
-
-                    {/* Name Input */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-name">Nama Menu</label>
-                      <input
-                        id="form-menu-name"
-                        type="text"
-                        required
-                        placeholder="Contoh: Nasi Goreng Hijau"
-                        value={menuForm.name}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, name: e.target.value }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary"
-                      />
-                    </div>
-
-                    {/* Price Input */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-price">Harga (Rp)</label>
-                      <input
-                        id="form-menu-price"
-                        type="number"
-                        required
-                        placeholder="Contoh: 12000"
-                        value={menuForm.price}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, price: Number(e.target.value) }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary"
-                      />
-                    </div>
-
-                    {/* Category Selector */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-category">Kategori</label>
-                      <select
-                        id="form-menu-category"
-                        value={menuForm.category}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, category: e.target.value }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary"
-                      >
-                        <option value="Makanan Berat">Makanan Berat</option>
-                        <option value="Minuman">Minuman</option>
-                        <option value="Cemilan">Cemilan</option>
-                      </select>
-                    </div>
-
-                    {/* Rating (1-5) */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-rating">Rating (1-5)</label>
-                      <input
-                        id="form-menu-rating"
-                        type="number"
-                        step="0.1"
-                        min="1"
-                        max="5"
-                        placeholder="5"
-                        value={menuForm.rating}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, rating: Number(e.target.value) }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary"
-                      />
-                    </div>
-
-                    {/* Stock Input */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1" htmlFor="form-menu-stock">Stok Porsi</label>
-                      <div className="flex items-center space-x-3">
-                        <input
-                          id="form-menu-stock"
-                          type="number"
-                          required
-                          min="0"
-                          placeholder="Contoh: 20"
-                          value={menuForm.stock}
-                          onChange={(e) => setMenuForm(prev => ({ ...prev, stock: Number(e.target.value) }))}
-                          className="w-24 bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-gray-400">Jumlah porsi sisa. Jika 0, status otomatis "Habis".</span>
-                      </div>
-                    </div>
-
-                    {/* Daily Quota */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1" htmlFor="form-menu-quota">Kuota Harian (Porsi)</label>
-                      <div className="flex items-center space-x-3">
-                        <input
-                          id="form-menu-quota"
-                          type="number"
-                          value={menuForm.dailyQuota}
-                          onChange={(e) => setMenuForm(prev => ({ ...prev, dailyQuota: Number(e.target.value) }))}
-                          className="w-20 bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-gray-400 font-sans">Batas kuota harian.</span>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5" htmlFor="form-menu-desc">Deskripsi</label>
-                      <textarea
-                        id="form-menu-desc"
-                        rows={3}
-                        placeholder="Masukkan deskripsi rasa menu..."
-                        value={menuForm.description}
-                        onChange={(e) => setMenuForm(prev => ({ ...prev, description: e.target.value }))}
-                        className="w-full bg-cream/15 px-3 py-2.5 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary resize-none"
-                      />
-                    </div>
-
-                    {/* Checkboxes */}
-                    <div className="flex space-x-6 bg-cream/20 p-3 rounded-xl border border-cream-dark/20">
-                      <label className="flex items-center space-x-2 cursor-pointer font-bold">
-                        <input
-                          type="checkbox"
-                          checked={menuForm.isAvailable}
-                          onChange={(e) => setMenuForm(prev => ({ ...prev, isAvailable: e.target.checked }))}
-                          className="rounded accent-primary"
-                        />
-                        <span>Buka (Tersedia)</span>
-                      </label>
-
-                      <label className="flex items-center space-x-2 cursor-pointer font-bold">
-                        <input
-                          type="checkbox"
-                          checked={menuForm.bestseller}
-                          onChange={(e) => setMenuForm(prev => ({ ...prev, bestseller: e.target.checked }))}
-                          className="rounded accent-primary"
-                        />
-                        <span>Jadikan Best Seller</span>
-                      </label>
-                    </div>
-
-                    {/* Error Banner */}
-                    {saveError && (
-                      <div className="bg-red-50 text-red-600 border border-red-200 p-3.5 rounded-xl font-medium text-[11px] leading-relaxed text-left flex items-start space-x-2">
-                        <span className="text-sm shrink-0">⚠️</span>
-                        <span>{saveError}</span>
-                      </div>
-                    )}
-
-                    {/* Form Buttons */}
-                    <div className="flex space-x-2 pt-4 border-t border-cream/50 justify-end">
+                    {/* Sticky Footer */}
+                    <div className="p-5 border-t border-cream/50 justify-end flex space-x-3 shrink-0 bg-cream/10">
                       <button
                         type="button"
-                        disabled={saving}
+                        disabled={saving || uploadingImage}
                         onClick={() => setMenuModalOpen(false)}
-                        className={`bg-gray-100 hover:bg-cream text-gray-500 font-bold px-5 py-2.5 rounded-xl transition-colors ${
-                          saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                        className={`bg-gray-100 hover:bg-cream text-gray-500 font-bold px-6 py-3 rounded-xl transition-colors text-xs cursor-pointer ${
+                          (saving || uploadingImage) ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
                         Batal
                       </button>
                       <button
                         type="submit"
-                        disabled={saving}
-                        className={`bg-primary hover:bg-primary-dark text-white font-bold px-5 py-2.5 rounded-xl transition-all flex items-center space-x-1.5 ${
-                          saving ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        disabled={saving || uploadingImage}
+                        className={`bg-primary hover:bg-primary-dark text-white font-bold px-7 py-3 rounded-xl transition-all text-xs flex items-center space-x-2 cursor-pointer shadow-md ${
+                          (saving || uploadingImage) ? 'opacity-70 cursor-not-allowed' : ''
                         }`}
                       >
-                        {saving && (
+                        {(saving || uploadingImage) && (
                           <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         )}
-                        <span>{saving ? 'Menyimpan...' : 'Simpan Menu'}</span>
+                        <span>{saving ? 'Menyimpan...' : (uploadingImage ? 'Mengunggah Foto...' : 'Simpan Menu')}</span>
                       </button>
                     </div>
                   </form>
+
                 </div>
               </div>
             )}

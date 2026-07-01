@@ -114,7 +114,10 @@ export default function MenuCard({ item, onAdd, onPreview }: MenuCardProps) {
           ) : (
             <button
               id={`btn-add-item-${item.id}`}
-              onClick={() => onAdd(item)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdd(item);
+              }}
               className="bg-primary hover:bg-primary-dark text-white p-1.5 rounded-full shadow-soft transition-all duration-200 hover:scale-110 active:scale-95 flex items-center justify-center cursor-pointer"
               title="Tambah ke Keranjang"
             >

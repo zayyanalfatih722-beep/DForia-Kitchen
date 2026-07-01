@@ -136,6 +136,10 @@ export default function Checkout({ cart, onClearCart, appliedCoupon }: CheckoutP
     try {
       await dbService.addOrder(newOrder);
 
+      // Save phone and name to localStorage to retrieve order history on other devices
+      localStorage.setItem('df_customer_phone', phoneNumber);
+      localStorage.setItem('df_customer_name', customerName);
+
       // Save to local list of order IDs for the user's history screen
       const userOrderIds = JSON.parse(localStorage.getItem('df_user_order_ids') || '[]');
       userOrderIds.push(orderId);

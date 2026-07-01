@@ -161,12 +161,12 @@ export default function AdminCashier() {
   };
 
   return (
-    <div className="min-h-screen bg-cream pb-12">
+    <div className="min-h-[100dvh] h-auto bg-cream pb-12">
       {/* Top Admin Navigation Header */}
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button

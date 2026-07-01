@@ -30,8 +30,9 @@ export default function AdminBanner() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedBannerFile, setSelectedBannerFile] = useState<Blob | null>(null);
 
-  const resizeAndCompressImage = (file: File): Promise<string> => {
+  const resizeAndCompressToBlob = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -42,7 +43,7 @@ export default function AdminBanner() {
           let height = img.height;
           
           // Max dimension to keep document size light and efficient
-          const MAX_WIDTH = 1000;
+          const MAX_WIDTH = 1200;
           if (width > MAX_WIDTH) {
             height = Math.round((height * MAX_WIDTH) / width);
             width = MAX_WIDTH;
@@ -53,13 +54,18 @@ export default function AdminBanner() {
           
           const ctx = canvas.getContext('2d');
           if (!ctx) {
-            resolve(e.target?.result as string);
+            reject(new Error("Gagal memproses konteks kanvas."));
             return;
           }
           
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-          resolve(compressedBase64);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error("Gagal mengompresi gambar ke Blob."));
+            }
+          }, 'image/jpeg', 0.75);
         };
         img.onerror = () => {
           reject(new Error("Gagal membaca berkas gambar."));
@@ -80,8 +86,10 @@ export default function AdminBanner() {
     setUploadError(null);
     setIsUploading(true);
     try {
-      const compressedBase64 = await resizeAndCompressImage(file);
-      setBannerUrl(compressedBase64);
+      const blob = await resizeAndCompressToBlob(file);
+      setSelectedBannerFile(blob);
+      const localUrl = URL.createObjectURL(blob);
+      setBannerUrl(localUrl);
     } catch (err) {
       console.error(err);
       setUploadError(err instanceof Error ? err.message : "Gagal mengompresi gambar");
@@ -117,14 +125,47 @@ export default function AdminBanner() {
 
   const handleAddBanner = async () => {
     if (!bannerUrl.trim()) return;
-    const newBanner: Banner = {
-      id: '',
-      imageUrl: bannerUrl,
-      order: banners.length + 1
-    };
-    await dbService.saveBanner(newBanner);
-    setBannerUrl('');
-    loadAllData();
+    
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      let finalUrl = bannerUrl;
+      if (selectedBannerFile) {
+        const fileToUpload = new File(
+          [selectedBannerFile], 
+          `banner-${Date.now()}.jpg`, 
+          { type: 'image/jpeg' }
+        );
+        try {
+          finalUrl = await dbService.uploadImage(fileToUpload);
+        } catch (uploadErr: any) {
+          console.warn("Gagal mengupload banner ke Storage, menggunakan fallback Base64:", uploadErr);
+          // Convert Blob to base64
+          finalUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error("Gagal membaca berkas gambar untuk Base64."));
+            reader.readAsDataURL(selectedBannerFile);
+          });
+          alert("Catatan: Terjadi kendala penyimpanan Supabase. Sistem otomatis mengalihkan ke penyimpanan database (Base64) agar banner Anda tetap berhasil disimpan.");
+        }
+      }
+
+      const newBanner: Banner = {
+        id: '',
+        imageUrl: finalUrl,
+        order: banners.length + 1
+      };
+      await dbService.saveBanner(newBanner);
+      setBannerUrl('');
+      setSelectedBannerFile(null);
+      loadAllData();
+    } catch (err: any) {
+      console.error(err);
+      setUploadError(err?.message || "Gagal menyimpan/mengunggah gambar banner ke storage.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleDeleteBanner = async (id: string) => {
@@ -158,12 +199,12 @@ export default function AdminBanner() {
   };
 
   return (
-    <div className="min-h-screen bg-cream pb-12">
+    <div className="min-h-[100dvh] h-auto bg-cream pb-12">
       {/* Top Admin Navigation Header */}
       <AdminHeader />
 
       {/* Main Body */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Back Button */}
         <div className="mb-6">
           <button
