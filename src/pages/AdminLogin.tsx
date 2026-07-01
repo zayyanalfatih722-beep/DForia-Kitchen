@@ -10,8 +10,9 @@ import { dbService } from '../lib/firebase';
 
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(() => localStorage.getItem('df_saved_username') || '');
+  const [password, setPassword] = useState(() => localStorage.getItem('df_saved_password') || '');
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('df_remember_me') !== 'false');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -23,6 +24,17 @@ export default function AdminLogin() {
     try {
       const success = await dbService.loginAdmin(username, password);
       if (success) {
+        // Save or remove credentials based on rememberMe option
+        if (rememberMe) {
+          localStorage.setItem('df_saved_username', username);
+          localStorage.setItem('df_saved_password', password);
+          localStorage.setItem('df_remember_me', 'true');
+        } else {
+          localStorage.removeItem('df_saved_username');
+          localStorage.removeItem('df_saved_password');
+          localStorage.setItem('df_remember_me', 'false');
+        }
+
         // Request notification permission from admin on successful login
         if ('Notification' in window && Notification.permission === 'default') {
           try {
@@ -103,6 +115,20 @@ export default function AdminLogin() {
                 className="w-full bg-cream/20 text-gray-700 placeholder-gray-400 text-xs pl-10 pr-3 py-3 rounded-xl border border-cream-dark/45 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary transition-all"
               />
             </div>
+          </div>
+
+          {/* Remember Me Checkbox */}
+          <div className="flex items-center space-x-2 pt-1 pb-2">
+            <input
+              id="remember-me-checkbox"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 rounded border-cream-dark/45 text-primary focus:ring-primary/40 accent-primary cursor-pointer"
+            />
+            <label htmlFor="remember-me-checkbox" className="text-xs text-gray-500 font-medium select-none cursor-pointer">
+              Simpan password di HP ini
+            </label>
           </div>
 
           <button
